@@ -10,7 +10,7 @@
 DEFAULT_MODEL_PATH="/home/byguan/huggingface/Qwen/Qwen3-30B-A3B"
 DEFAULT_CUDA_DEVICES="2,3"
 DEFAULT_PORT="8000"
-DEFAULT_MAX_MODEL_LEN="4096"
+DEFAULT_MAX_MODEL_LEN="8192"
 DEFAULT_MAX_NUM_SEQS="16"
 DEFAULT_GPU_MEMORY_UTILIZATION="0.9"
 
@@ -142,5 +142,3 @@ vllm serve "$MODEL_PATH" \
 # # 健康检查
 # echo "进行健康检查..."
 # curl -f http://127.0.0.1:$PORT/health || { echo "服务启动失败"; exit 1; }
-
-
