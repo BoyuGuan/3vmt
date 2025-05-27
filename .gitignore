@@ -1,1 +1,4 @@
 /temp
+/huggingface
+/data
+*__pycache__*
