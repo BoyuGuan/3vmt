@@ -106,7 +106,6 @@ if __name__ == '__main__':
             ]
         )
 
-    
     # # 为每个video_message添加model参数
     video_message_args = [(msg, args.model) for msg in video_messages]
     

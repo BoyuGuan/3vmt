@@ -2,3 +2,4 @@
 /huggingface
 /data
 *__pycache__*
+/eval
