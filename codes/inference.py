@@ -46,11 +46,19 @@ def getSrcPredsRefsTextModel(dataLoader, model, tokenizer, args):
             batchInput.append(inputItem)
         # print(batchInput)
         # print(batchInput[0])
-        text_batch = tokenizer.apply_chat_template(
-            batchInput,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
+        if args.thinking == False:
+            text_batch = tokenizer.apply_chat_template(
+                batchInput,
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=False
+            )
+        else:
+            text_batch = tokenizer.apply_chat_template(
+                batchInput,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
         # model_inputs_batch = tokenizer(text_batch, return_tensors="pt", max_length=args.max_src_length, truncation=True).to(model.device)
         if args.model_name == "Llama-3.1-8B-Instruct":
             tokenizer.pad_token = tokenizer.eos_token
@@ -283,8 +291,16 @@ if __name__ == "__main__":
     parser.add_argument("--picID_path", type=str, default=None, help="The clip ID to picture ID file path.")
     parser.add_argument("--given_pic_ID", type=int, default= None)
     parser.add_argument("--vatex", action="store_true", help="Whether to use VATEX dataset.")
+    parser.add_argument("--thinking", action="store_true", help="Whether to use thinking mode.")
     
     args = parser.parse_args()
+
+    if args.model_name is None:
+        args.model_name = args.model_path.split('/')[-1]
+
+    if args.thinking:
+        assert "QwQ" in args.model_name or "Qwen3" in args.model_name, "Model is not support thinking!"
+        args.max_tgt_length = 2048 if args.max_tgt_length < 2048 else args.max_tgt_length
 
     # log 设置
     while True:
@@ -305,8 +321,6 @@ if __name__ == "__main__":
     logger.addHandler(fileHandler)
     logger.addHandler(commandHandler)
     
-    if args.model_name is None:
-        args.model_name = args.model_path.split('/')[-1]
     
     if args.model_name == "InternVideo2_5_Chat_8B":
         args.batch_size = 1
@@ -349,7 +363,6 @@ if __name__ == "__main__":
         else:
             raise TypeError("Model name not supported!")
         src, preds, refs, clipIDs = getSrcPredsRefsTextModel(testDataloader, model, tokenizer, args)
-        # src, preds, refs = getSrcPredsRefs(testDataloader, model, tokenizer, model.generation_config)
     elif args.model_type == "multimodal":
         if args.model_name == "LLaVA-NeXT-Video-7B-hf":
             model = LlavaNextVideoForConditionalGeneration.from_pretrained(args.model_path, torch_dtype="auto",device_map="auto")
@@ -383,7 +396,14 @@ if __name__ == "__main__":
         raise TypeError("Model type format error!")
     saveResult(src, preds, refs, clipIDs, logDirName)
 
+
     if args.trans_metric:
+        
+        # 如果使用thinking模式，需要从preds中提取content部分
+        if args.thinking:
+            preds = [pred.split("</think>")[-1].strip() for pred in preds]
+            logger.info("已从thinking模式输出中提取content部分")
+        
         # 计算翻译指标
         logger.info(f"\033[91m Evaluation Resutlts")
         if 'BLEU' in args.metrics:
