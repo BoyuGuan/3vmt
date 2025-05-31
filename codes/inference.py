@@ -36,9 +36,9 @@ def getSrcPredsRefsTextModel(dataLoader, model, tokenizer, args):
         
         batchInput = []
         assert len(batch_data["src_text"]) == len(batch_data["tgt_text"]), "Pairs in batch not equal"
+        itemSystemPrompt = getSystemPrompt(args.model_name, args.model_type, args.system_prompt_type)
         for i in range(len(batch_data["src_text"])):
             inputItem = []
-            itemSystemPrompt = getSystemPrompt(args.model_name, args.model_type, args.system_prompt_type)
             if itemSystemPrompt is not None:
                 inputItem.append(itemSystemPrompt)
             inputItem.append({"role": "user", "content": getUserPrompt(args.prompt_language, args.source_language, args.target_language,\
@@ -353,7 +353,7 @@ if __name__ == "__main__":
     
     # 对纯文本和多模态大模型做了区分
     if args.model_type == "text":
-        if "Qwen2" in args.model_name or "Qwen3" in args.model_name or "Llama-3" in args.model_name:
+        if "Qwen2" in args.model_name or "Qwen3" in args.model_name or "Llama-3" in args.model_name or "QwQ" in args.model_name:
             tokenizer = AutoTokenizer.from_pretrained(args.model_path, padding_side="left")
             model = AutoModelForCausalLM.from_pretrained(args.model_path, torch_dtype="auto", device_map="auto")
         elif args.model_name == "internlm3-8b-instruct":
@@ -400,7 +400,7 @@ if __name__ == "__main__":
     if args.trans_metric:
         
         # 如果使用thinking模式，需要从preds中提取content部分
-        if args.thinking:
+        if args.thinking or ("</think>" in preds[0] and "</think>" in preds[1]):
             preds = [pred.split("</think>")[-1].strip() for pred in preds]
             logger.info("已从thinking模式输出中提取content部分")
         

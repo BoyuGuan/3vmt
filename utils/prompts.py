@@ -12,7 +12,7 @@ def getSystemPrompt(modelName, modelType,promptType):
     modelName2Type = {"Qwen2-7B-Instruct": "qwen2", "Qwen2.5-7B-Instruct": "qwen2", "Qwen2.5-14B-Instruct": "qwen2", "Llama-3-8B-Instruct": "llama3", "Qwen3-30B-A3B":"qwen2",\
         "LLaVA-NeXT-Video-7B-hf":"llava", "Qwen2-VL-7B-Instruct":"qwen2-vl","MiniCPM-V-2_6":"minicpm","Qwen2.5-VL-7B-Instruct":"qwen2.5-vl","Qwen2.5-VL-32B-Instruct":"qwen2.5-vl",\
             "Qwen2.5-VL-3B-Instruct":"qwen2.5-vl", "internlm3-8b-instruct":"internlm3", "Qwen2.5-3B-Instruct": "qwen2", "Qwen2.5-32B-Instruct": "qwen2","Qwen3-4B": "qwen2", "Qwen3-8B": "qwen2", \
-        "InternVideo2_5_Chat_8B":"InternVideo2_5","Llama-3.2-11B-Vision-Instruct":"llama3.2-vision","Llama-3.1-8B-Instruct":"llama3.1", "Qwen3-32B": "qwen2"}
+        "InternVideo2_5_Chat_8B":"InternVideo2_5","Llama-3.2-11B-Vision-Instruct":"llama3.2-vision","Llama-3.1-8B-Instruct":"llama3.1", "Qwen3-32B": "qwen2", "QwQ-32B": "QWQ"}
     systemPrompts = dict()
     systemPrompts["qwen2"] = {"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."}
     systemPrompts["llama3"] = None    
@@ -20,6 +20,7 @@ def getSystemPrompt(modelName, modelType,promptType):
     systemPrompts["qwen2-vl"] = None
     systemPrompts["minicpm"] = None
     systemPrompts["qwen2.5-vl"] = None
+    systemPrompts["QWQ"] = None    
     systemPrompts["internlm3"] = {"role": "system", "content": """You are an AI assistant whose name is InternLM (书生·浦语).
     - InternLM (书生·浦语) is a conversational language model that is developed by Shanghai AI Laboratory (上海人工智能实验室). It is designed to be helpful, honest, and harmless.
     - InternLM (书生·浦语) can understand and communicate fluently in the language chosen by the user such as English and 中文."""}
