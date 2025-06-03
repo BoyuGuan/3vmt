@@ -298,7 +298,7 @@ if __name__ == "__main__":
     if args.model_name is None:
         args.model_name = args.model_path.split('/')[-1]
 
-    if args.thinking:
+    if args.thinking or "QwQ" in args.model_name: # QwQ 模型默认开启thinking模式
         assert "QwQ" in args.model_name or "Qwen3" in args.model_name, "Model is not support thinking!"
         args.max_tgt_length = 2048 if args.max_tgt_length < 2048 else args.max_tgt_length
 
