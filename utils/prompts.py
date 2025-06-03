@@ -66,6 +66,9 @@ def getUserPrompt(promptLanguage, srcLanguage, tgtLanguage, srcSent, shotNum=0, 
             userPrompts["en"] = f"You are provided with a video context. Your task is to translate the given input sentence from {languageID2text['zh'][srcLanguage]} into {languageID2text['zh'][tgtLanguage]}, strictly based on the video's content.\n"
             userPrompts["en"] += f"Requirements:\nONLY output the translated sentence.\nEnsure the translation is consistent with the video's context and meaning.\n\n" 
             userPrompts["en"] += f"Input sentence:\n{srcSent}\nTranslated sentence:\n"
+        elif prompt_type == "videoCaption":
+            userPrompts["zh"] = f"向我描述一下这个视频。"
+            userPrompts["en"] = f"Describe this video to me."
     elif dataset_type == 'image-text':
         if shotNum != 0:
             raise TypeError("Only zero shot is supported now in video-text")
