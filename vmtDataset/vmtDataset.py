@@ -65,6 +65,10 @@ class vmtDatasetForLLM(Dataset):
         self.special = args.special
         self.vatex = args.vatex
         
+        if args.start_index is not None and args.end_index is not None:
+            assert 0 <= args.start_index < args.end_index, "Start index must be less than end index"
+            self.clipData = self.clipData[args.start_index*10000:args.end_index*10000]
+        
         if args.image_selection == "select":
             assert args.cluster_path is not None, "Please provide the cluster path!"
             assert args.picID_path is not None, "Please provide the picID path!"

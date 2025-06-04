@@ -275,6 +275,8 @@ if __name__ == "__main__":
     parser.add_argument('-sl', "--source_language", type=str, default='en', choices=['zh', 'en'], help='Source language (zh or en)')
     parser.add_argument('-tl', "--target_language", type=str, default='zh', choices=['zh', 'en'], help='Target language (zh or en)')
     parser.add_argument('-pl', "--prompt_language", type=str, default='en', choices=['zh', 'en'], help='Prompt language (zh or en)')
+    parser.add_argument('--start_index', type=int, default=None, help='Start index, unit 10K')
+    parser.add_argument('--end_index', type=int, default=None, help='End index, unit 10K')
     parser.add_argument('-spt', '--system_prompt_type', type=str, default='default')    
     parser.add_argument('-sn', '--shot_num', type=int, default=0)    
     # parser.add_argument('--is_test_set', action='store_true', help="Whether to evaluate test set.")
