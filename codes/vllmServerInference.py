@@ -10,6 +10,15 @@ import argparse
 import json
 from utils.prompts import getUserPrompt
 import os
+import time
+import random
+from datetime import datetime
+import logging
+
+logger = logging.getLogger('vllmServerInference')
+formatter = logging.Formatter('%(asctime)s : %(name)s - %(levelname)s - %(message)s')
+logger.setLevel(logging.INFO) 
+
 
 def prepare_video_message_for_qwen_vllm(content_messages):
     """
@@ -80,7 +89,7 @@ async def process_video_message(args_tuple):
         # print("Chat response:", chat_response.choices[0].message.content)
         return clipID, chat_response.choices[0].message.content
     except Exception as e:
-        print(f"Error processing video message: {e}")
+        logger.error(f"Error processing video message: {e}")
         return clipID, f"Error: {str(e)}"
     finally:
         await async_process_client.close()
@@ -108,7 +117,7 @@ async def process_text_message(args_tuple):
         )
         return clipID, chat_response.choices[0].message.content
     except Exception as e:
-        print(f"Error processing text message: {e}")
+        logger.error(f"Error processing text message: {e}")
         return clipID, f"Error: {str(e)}"
     finally:
         await async_process_client.close()
@@ -129,6 +138,31 @@ async def main():
     parser.add_argument("--ip", type=str, default="localhost")
     parser.add_argument("-p", "--port", type=int, default=8000)
     args = parser.parse_args()
+    
+    # log 设置 - 创建日期文件夹（与inference.py保持一致）
+    while True:
+        logDirName = f'./eval/eval-{datetime.now().strftime("%Y-%m-%d-%H-%M-%S")}'
+        if not os.path.exists(logDirName):
+            os.makedirs(logDirName)
+            break
+        else:
+            logger.info("Please waiting\n")
+            time.sleep(random.randint(1, 10))
+            
+    fileHandler = logging.FileHandler(f'{logDirName}/eval.log')
+    fileHandler.setLevel(logging.INFO)
+    fileHandler.setFormatter(formatter)
+    commandHandler = logging.StreamHandler()
+    commandHandler.setLevel(logging.INFO)
+    commandHandler.setFormatter(formatter)
+    logger.addHandler(fileHandler)
+    logger.addHandler(commandHandler)
+    
+    # 将参数记录到日志中
+    args2Log = "Script arguments: \n"
+    for key, value in vars(args).items():
+        args2Log += f"{key}: {value} \n"
+    logger.info(args2Log)
     
     vllmURL = f"http://{args.ip}:{args.port}/v1"
     
@@ -172,11 +206,11 @@ async def main():
             
         target_process_function = process_text_message
     else:
-        print(f"Unsupported dataset_type: {args.dataset_type}. Please use 'video-text' or 'text'. Exiting.")
+        logger.error(f"Unsupported dataset_type: {args.dataset_type}. Please use 'video-text' or 'text'. Exiting.")
         return
 
     if not all_message_contents:
-        print("No messages were prepared to process. Exiting.")
+        logger.error("No messages were prepared to process. Exiting.")
         return
 
     message_args_list = [(content, args.model, vllmURL, clipID) for content, clipID in zip(all_message_contents, clipIDs)]
@@ -208,14 +242,11 @@ async def main():
                 args.promptType: "None"
             })
     
-    # Ensure output directory exists
-    output_dir_path = f"./data/work3/{args.promptType}"
-    os.makedirs(output_dir_path, exist_ok=True)
-
-    output_filename = f"{output_dir_path}/{args.filePath.split('/')[-1].split('.')[0]}.json"
-    with open(output_filename, "w") as f:
+    # 使用新的保存格式（与inference.py保持一致）
+    with open(f"{logDirName}/results.json", "w") as f:
         json.dump(outputs, f, indent=4, ensure_ascii=False)
-    print(f"Outputs saved to {output_filename}")
+
+    logger.info(f"Results saved to {logDirName}/results.json")
 
 if __name__ == '__main__':
     asyncio.run(main())

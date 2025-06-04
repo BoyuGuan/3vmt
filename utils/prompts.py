@@ -78,7 +78,6 @@ Given a piece of text (a subtitle line or a video description), decide whether a
 
 **Output format** – valid JSON only, no extra keys, no commentary:
 
-```json
 {{
   "need_video": true | false,
   "video_aid": {{
@@ -86,7 +85,7 @@ Given a piece of text (a subtitle line or a video description), decide whether a
     "video_focus": ["<visual cue 1>", "<visual cue 2>", "..."]
   }}
 }}
-```
+
 • If "need_video" is false, set "video_aid" to {{}} (an empty object).
 • Ensure the JSON is syntactically valid and contains no additional fields.
 Now analyze the input text below:
