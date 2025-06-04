@@ -55,6 +55,47 @@ def getUserPrompt(promptLanguage, srcLanguage, tgtLanguage, srcSent, shotNum=0, 
             userPrompts["en"] = f"Please translate the following sentences into {languageID2text['en'][tgtLanguage]}. The input sentences are wrapped by <sentence> and </sentence>:\n"
             userPrompts["en"] += f"\n<sentence>\n{srcSent}\n</sentence>\n"
             userPrompts["en"] += "\nThe translated result should be wrapped by <translated> and </translated>."
+        if prompt_type == "textReasoning":
+            userPrompts["en"] = f"""You are a translation-assistant reasoning model.
+
+**Task**
+Given a piece of text (a subtitle line or a video description), decide whether additional video context is necessary to translate it accurately, and—if so—pinpoint exactly which parts of the text need that help and what visual evidence would resolve them.
+
+**Step-by-step guidelines**
+
+1. need_video  
+   • Output **true** if video context could remove ambiguity about meaning, speaker, entities, actions, or scene.  
+   • Output **false** if the text is semantically clear, self-contained, and unambiguous without visual cues.
+
+2. video_aid (only if need_video is true)  
+   a. **text_fragments** – list every word or phrase whose meaning depends on the video.  
+   b. **video_focus** – for each fragment (or group of fragments), briefly state the kind of visual cue that would help, e.g.  
+      • object/entity
+      • scene/location
+      • action/motion
+      • speaker identity / lip reading  
+      • on-screen text / signage
+
+**Output format** – valid JSON only, no extra keys, no commentary:
+
+```json
+{{
+  "need_video": true | false,
+  "video_aid": {{
+    "text_fragments": ["<fragment 1>", "<fragment 2>", "..."],
+    "video_focus": ["<visual cue 1>", "<visual cue 2>", "..."]
+  }}
+}}
+```
+• If "need_video" is false, set "video_aid" to {{}} (an empty object).
+• Ensure the JSON is syntactically valid and contains no additional fields.
+Now analyze the input text below:
+{srcSent}
+
+Respond with JSON only.
+"""
+            userPrompts["zh"] = userPrompts["en"]
+
     elif dataset_type == "video-text":
         if shotNum != 0:
             raise TypeError("Only zero shot is supported now in video-text")
