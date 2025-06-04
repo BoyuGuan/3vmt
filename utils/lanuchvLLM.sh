@@ -7,7 +7,7 @@
 # ./utils/lanuchvLLM.sh -m /home/byguan/huggingface/Qwen/Qwen2.5-VL-32B-Instruct -l 16384
 
 # 设置默认值
-DEFAULT_MODEL_PATH="/home/byguan/huggingface/Qwen/Qwen3-30B-A3B"
+DEFAULT_MODEL_PATH="/home/byguan/huggingface/Qwen/Qwen3-32B"
 DEFAULT_CUDA_DEVICES="2,3"
 DEFAULT_PORT="8000"
 DEFAULT_MAX_MODEL_LEN="8192"
@@ -131,6 +131,7 @@ vllm serve "$MODEL_PATH" \
   --tensor-parallel-size $TENSOR_PARALLEL_SIZE \
   --max-num-seqs $MAX_NUM_SEQS \
   --gpu-memory-utilization $GPU_MEMORY_UTILIZATION \
+  --enable-prefix-caching \
   $REASONING_PARSER_ARG
 # 记录PID
 # echo $! > /tmp/vllm.pid
