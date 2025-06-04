@@ -78,7 +78,7 @@ def computeCOMET(src, preds, refs):
         return compute(src, preds, refs)
     except:
         print("change network_address")
-        proxy_addresses = ["http://10.6.24.53:10452", "http://172.18.31.59:7890", "http://10.5.28.23:7890"]
+        proxy_addresses = ["http://10.6.24.35:10452", "http://172.18.31.59:7890", "http://10.5.28.23:7890"]
         for address in proxy_addresses:
             try:
                 setNetwork(address)
