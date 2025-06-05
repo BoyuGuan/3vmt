@@ -9,6 +9,7 @@ from nltk.translate.meteor_score import meteor_score
 from bleurt_pytorch import BleurtForSequenceClassification, BleurtTokenizer
 # from comet import download_model, load_from_checkpoint
 import evaluate
+import numpy as np 
 
 def computeBLEU(preds, refs, isZh=False, usingSacreBLEU=True):
     if usingSacreBLEU:
@@ -129,7 +130,7 @@ def getSrcPredsRefs(DirName):
         
     return src, preds, refs
 
-def computeTranslationMetrics(DirName, metrics = ['BLEU', 'METEOR', 'chrF', 'COMET', 'BLEURT']):
+def computeTranslationMetrics(DirName, save_comet_scores=False, metrics = ['BLEU', 'METEOR', 'chrF', 'COMET', 'BLEURT']):
     src, preds, refs = getSrcPredsRefs(DirName)
     tgtIsChinese = detect_language_is_Chinese(refs[0])
 
@@ -148,9 +149,14 @@ def computeTranslationMetrics(DirName, metrics = ['BLEU', 'METEOR', 'chrF', 'COM
         print( f"\033[91m chrF: {chrFScore} \033[0m" )
         metricScores.append(chrFScore)
     if 'COMET' in metrics:
-        COMETScore = computeCOMET(src, preds, refs)["mean_score"] * 100
-        print( f"\033[91m COMET: {COMETScore} \033[0m" )
-        metricScores.append(COMETScore)
+        COMETScore = computeCOMET(src, preds, refs)
+        
+        MeanCOMETScore = COMETScore["mean_score"] * 100
+        print( f"\033[91m COMET: {MeanCOMETScore} \033[0m" )
+        metricScores.append(MeanCOMETScore)
+        if save_comet_scores:
+            np.save(os.path.join(DirName, "comet_scores.npy"), COMETScore["scores"])
+        
     if 'BLEURT' in metrics:
         BLEURTScore = computeBLEURT(preds, refs) * 100
         print( f"\033[91m BLEURT: {BLEURTScore} \033[0m" )
@@ -169,6 +175,7 @@ if __name__ == "__main__":
     parser.add_argument("-m", "--metrics", nargs='+', default=['BLEU', 'METEOR', 'chrF', 'COMET', 'BLEURT'],
                         help="Specify which metrics to compute. Available options: BLEU, METEOR, chrF, COMET, BLEURT. "
                                 "Default is to compute all metrics.")
+    parser.add_argument("-sc", "--save_comet_scores", action="store_true")
     args = parser.parse_args()
 
-    computeTranslationMetrics(args.dir_path, args.metrics)
+    computeTranslationMetrics(args.dir_path, args.save_comet_scores, args.metrics)
