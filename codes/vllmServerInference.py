@@ -227,20 +227,22 @@ async def main():
         clipID, result = await future
         result_dict[clipID] = result
     
-    # 按照原始clipIDs的顺序生成输出
+    # 按照原始allData的顺序生成输出，保留所有原始字段
     outputs = []
-    for clipID in clipIDs:  # 按原始顺序遍历
+    for i, item in enumerate(allData):  # 按原始数据顺序遍历
+        clipID = f"{item['video_id']}_{item['clip_id']}"
+        
+        # 创建输出项，包含所有原始字段
+        output_item = item.copy()  # 复制所有原始字段
+        
+        # 添加推理结果
         if clipID in result_dict:
-            outputs.append({
-                "clipID": clipID,
-                args.promptType: result_dict[clipID]
-            })
+            output_item[args.promptType] = result_dict[clipID]
         else:
             # 如果某个clipID没有结果（理论上不应该发生），添加错误信息
-            outputs.append({
-                "clipID": clipID,
-                args.promptType: "None"
-            })
+            output_item[args.promptType] = "None"
+        
+        outputs.append(output_item)
     
     # 使用新的保存格式（与inference.py保持一致）
     with open(f"{logDirName}/results.json", "w") as f:
