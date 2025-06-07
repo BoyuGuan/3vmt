@@ -15,7 +15,7 @@ import logging
 from utils.prompts import getSystemPrompt, getUserPrompt
 from utils.computeTransMetric import computeBLEU, computeMETEOR, computeChrF, computeCOMET, computeBLEURT
 import json
-from LLM_vmt_dataset.vmtDataset import vmtDatasetForLLM
+from vmtDataset.vmtDataset import vmtDatasetForLLM
 from qwen_vl_utils import process_vision_info
 
 logger = logging.getLogger('evalModel')
@@ -275,8 +275,8 @@ if __name__ == "__main__":
     parser.add_argument('-sl', "--source_language", type=str, default='en', choices=['zh', 'en'], help='Source language (zh or en)')
     parser.add_argument('-tl', "--target_language", type=str, default='zh', choices=['zh', 'en'], help='Target language (zh or en)')
     parser.add_argument('-pl', "--prompt_language", type=str, default='en', choices=['zh', 'en'], help='Prompt language (zh or en)')
-    parser.add_argument('--start_index', type=int, default=None, help='Start index, unit 10K')
-    parser.add_argument('--end_index', type=int, default=None, help='End index, unit 10K')
+    parser.add_argument('-s', '--start_index', type=int, default=None, help='Start index, unit 10K')
+    parser.add_argument('-e', '--end_index', type=int, default=None, help='End index, unit 10K')
     parser.add_argument('-spt', '--system_prompt_type', type=str, default='default')    
     parser.add_argument('-sn', '--shot_num', type=int, default=0)    
     # parser.add_argument('--is_test_set', action='store_true', help="Whether to evaluate test set.")
@@ -288,7 +288,7 @@ if __name__ == "__main__":
                     help="Specify which metrics to compute. Available options: BLEU, METEOR, chrF, COMET, BLEURT. "
                             "Default is to compute all metrics.")
     parser.add_argument("-pt", "--prompt_type", type=str, default=None, help="Prompt type, default is None, which means of translation prompt. And can set to `chooseImage` to choose image.")
-    parser.add_argument("-s", "--special", type=str, default=None, help="Special setting")
+    parser.add_argument("--special", type=str, default=None, help="Special setting")
     parser.add_argument("--cluster_path", type=str, default=None, help="Image path")
     parser.add_argument("--picID_path", type=str, default=None, help="The clip ID to picture ID file path.")
     parser.add_argument("--given_pic_ID", type=int, default= None)
