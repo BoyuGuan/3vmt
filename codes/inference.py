@@ -396,6 +396,8 @@ if __name__ == "__main__":
         src, preds, refs, clipIDs = getSrcPredsRefsMultimodalModel(testDataloader, model, processor, args)
     else:
         raise TypeError("Model type format error!")
+
+    logger.info(f"Inference finished! Saving results...")
     saveResult(src, preds, refs, clipIDs, logDirName)
 
 

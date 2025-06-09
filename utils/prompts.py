@@ -109,6 +109,12 @@ Respond with JSON only.
         elif prompt_type == "videoCaption":
             userPrompts["zh"] = f"向我描述一下这个视频。"
             userPrompts["en"] = f"Describe this video to me."
+        elif prompt_type == "videoCaptionThenTranslate":
+            userPrompts["en"] = f"""Describe this video to me.
+Then, based on both the video description and the original source sentence, translate the source sentence into the {languageID2text['en'][tgtLanguage]}.
+Source sentence: 
+{srcSent}"""
+            userPrompts["zh"] = userPrompts["en"]
     elif dataset_type == 'image-text':
         if shotNum != 0:
             raise TypeError("Only zero shot is supported now in video-text")
