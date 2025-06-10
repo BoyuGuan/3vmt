@@ -1,8 +1,10 @@
 import argparse
 import logging
 import json
-import numpy as np
 import random
+import os
+
+import numpy as np
 
 from utils.prompts import getUserPrompt
 
@@ -29,6 +31,7 @@ def makeSFTData(clips, srcLanguage, tgtLanguage, number):
         videoTextTranslatePrompt = getUserPrompt(promptLanguage="en", srcLanguage=srcLanguage, tgtLanguage=tgtLanguage,\
             srcSent=clip[f"{srcLanguage.upper()}_sentence"], dataset_type="video-text")
         videoPath = f"./data/TriFine/videoClips/{clip['video_id']}/{clip['video_id']}_{clip['clip_id']}.mp4"
+        tgtSent = clip[f"{tgtLanguage.upper()}_sentence"]
         SFTItem = { "video": videoPath, 
                     "conversations": [ 
                         {
@@ -37,7 +40,7 @@ def makeSFTData(clips, srcLanguage, tgtLanguage, number):
                         },
                         {
                             "from": "gpt",
-                            "value": clip[f"{tgtLanguage.upper()}_sentence"]
+                            "value": tgtSent
                         }
                     ]}
         outputSFTData.append(SFTItem)
@@ -45,11 +48,49 @@ def makeSFTData(clips, srcLanguage, tgtLanguage, number):
         ensure_ascii=False, indent=4)
     return outputSFTData
 
+def makeVideoCaptionSFTData(clips, srcLanguage, tgtLanguage, number):
+    outputSFTData = []
+    
+    if srcLanguage == "en":
+        videoCaption = json.load(open(f"./data/work3/videoCaption/Qwen2.5-VL-7B/eval-2025-06-07-14-38-06/results.json", "r"))
+    elif srcLanguage == "zh":
+        videoCaption = json.load(open(f"./data/work3/videoCaption/Qwen2.5-VL-7B/eval-2025-06-07-14-39-14/results.json", "r"))
+    else:
+        raise ValueError(f"srcLanguage {srcLanguage} not supported")
+
+    clipID2VideoCaption = {
+        item["clipID"]: item["preds"] for item in videoCaption
+    }
+    
+    for clip in clips:
+        assert f'{clip["video_id"]}_{clip["clip_id"]}' in clipID2VideoCaption, f"clip_id {clip['video_id']}_{clip['clip_id']} not in clipID2VideoCaption"
+        clipVideoCaption = clipID2VideoCaption[f'{clip["video_id"]}_{clip["clip_id"]}']
+        videoCaptionTranslatePrompt = getUserPrompt(promptLanguage="en", srcLanguage=srcLanguage, tgtLanguage=tgtLanguage,\
+            srcSent=clip[f"{srcLanguage.upper()}_sentence"], dataset_type="video-text", prompt_type="videoCaptionThenTranslate")
+        videoPath = f"./data/TriFine/videoClips/{clip['video_id']}/{clip['video_id']}_{clip['clip_id']}.mp4"
+        tgtSent = clip[f"{tgtLanguage.upper()}_sentence"]
+        SFTItem = { "video": videoPath, 
+                    "conversations": [ 
+                        {
+                            "from": "human", 
+                            "value": f"<video>\n{videoCaptionTranslatePrompt}"
+                        },
+                        {
+                            "from": "gpt",
+                            "value": f"{clipVideoCaption}\n<translation>\n{tgtSent}"
+                        }
+                    ]}
+        outputSFTData.append(SFTItem)
+    json.dump(outputSFTData, open(f"./data/work3/sftData/videoCaption-SFTData_{srcLanguage}_{number}.json", "w"),\
+        ensure_ascii=False, indent=4)
+    return outputSFTData
+
+
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("-n", "--num", type=int, default=100000)
+    parser.add_argument("-n", "--num", type=int, default=10000)
     parser.add_argument("--alpha", type=float, default=0.6)
     args = parser.parse_args()
     
@@ -69,28 +110,31 @@ if __name__ == "__main__":
         args2Log += f"{key}: {value} \n"
     logger.info(args2Log)
 
-    enScores = np.load("./data/work3/dataClean/train_en_comet_scores.npy").tolist()
-    zhScores = np.load("./data/work3/dataClean/train_zh_comet_scores.npy").tolist()
-    enTrainClips = json.load(open("./data/TriFine/Train_clips_en.json", "r"))
-    zhTrainClips = json.load(open("./data/TriFine/Train_clips_zh.json", "r"))
-    enClipsFiltered = filterClips(enTrainClips, enScores, args.alpha, args.num, "en")
-    zhClipsFiltered = filterClips(zhTrainClips, zhScores, args.alpha, args.num, "zh")
-    
-    sftData_en_zh = makeSFTData(enClipsFiltered, "en", "zh", args.num)
-    sftData_zh_en = makeSFTData(zhClipsFiltered, "zh", "en", args.num)
-    sftData = sftData_en_zh + sftData_zh_en
-    random.shuffle(sftData)
-    json.dump(sftData, open(f"./data/work3/sftData/sftData_2_{args.num}.json", "w"),\
-        ensure_ascii=False, indent=4)
-    
-    
-    
-    
-    
-    
-    
-    
+    if os.path.exists(f"./data/work3/sftData/sftData_2_{args.num}.json"):
+        enClipsFiltered = json.load(open(f"./data/work3/dataClean/Train_clips_en_filtered_{args.num}.json", "r"))
+        zhClipsFiltered = json.load(open(f"./data/work3/dataClean/Train_clips_zh_filtered_{args.num}.json", "r"))
+    else:
+        enScores = np.load("./data/work3/dataClean/train_en_comet_scores.npy").tolist()
+        zhScores = np.load("./data/work3/dataClean/train_zh_comet_scores.npy").tolist()
+        enTrainClips = json.load(open("./data/TriFine/Train_clips_en.json", "r"))
+        zhTrainClips = json.load(open("./data/TriFine/Train_clips_zh.json", "r"))
+        enClipsFiltered = filterClips(enTrainClips, enScores, args.alpha, args.num, "en")
+        zhClipsFiltered = filterClips(zhTrainClips, zhScores, args.alpha, args.num, "zh")
+        
+        sftData_en_zh = makeSFTData(enClipsFiltered, "en", "zh", args.num)
+        sftData_zh_en = makeSFTData(zhClipsFiltered, "zh", "en", args.num)
+        sftData = sftData_en_zh + sftData_zh_en
+        random.shuffle(sftData)
+        json.dump(sftData, open(f"./data/work3/sftData/sftData_2_{args.num}.json", "w"),\
+            ensure_ascii=False, indent=4)
 
+    if not os.path.exists(f"./data/work3/sftData/videoCaption-SFTData_2_{args.num}.json"):
+        videoCaptionSFTData_en_zh = makeVideoCaptionSFTData(enClipsFiltered, "en", "zh", args.num)
+        videoCaptionSFTData_zh_en = makeVideoCaptionSFTData(zhClipsFiltered, "zh", "en", args.num)
+        videoCaptionSFTData = videoCaptionSFTData_en_zh + videoCaptionSFTData_zh_en
+        random.shuffle(videoCaptionSFTData)
+        json.dump(videoCaptionSFTData, open(f"./data/work3/sftData/videoCaption-SFTData_2_{args.num}.json", "w"),\
+            ensure_ascii=False, indent=4)
 
 
 

@@ -31,6 +31,11 @@ DIRECT_FINETUNE = {
     "data_path": "/home/byguan/3vmt",
 }
 
+VIDEO_CAPTION_FINETUNE = {
+    "annotation_path": "/home/byguan/3vmt/data/work3/sftData/videoCaption-SFTData_2_10000.json",
+    "data_path": "/home/byguan/3vmt",
+}
+
 data_dict = {
     "cambrian_737k": CAMBRIAN_737K,
     "cambrian_737k_pack": CAMBRIAN_737K_PACK,
@@ -38,6 +43,7 @@ data_dict = {
     "clevr_mc": CLEVR_MC,
     "videochatgpt": VIDEOCHATGPT,
     "direct_finetune": DIRECT_FINETUNE,
+    "video_caption_finetune": VIDEO_CAPTION_FINETUNE,
 }
 
 

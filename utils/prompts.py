@@ -110,8 +110,7 @@ Respond with JSON only.
             userPrompts["zh"] = f"向我描述一下这个视频。"
             userPrompts["en"] = f"Describe this video to me."
         elif prompt_type == "videoCaptionThenTranslate":
-            userPrompts["en"] = f"""Describe this video to me.
-Then, based on both the video description and the original source sentence, translate the source sentence into the {languageID2text['en'][tgtLanguage]}.
+            userPrompts["en"] = f"""Describe this video to me. Then, based on both the video description and the original source sentence, translate the source sentence into the {languageID2text['en'][tgtLanguage]}. Separate the video description and the translation with <translation>.
 Source sentence: 
 {srcSent}"""
             userPrompts["zh"] = userPrompts["en"]
