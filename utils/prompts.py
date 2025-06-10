@@ -29,7 +29,7 @@ def getSystemPrompt(modelName, modelType,promptType):
     systemPrompts["llama3.1"] = None
     return systemPrompts[modelName2Type[modelName]]
 
-def getUserPrompt(promptLanguage, srcLanguage, tgtLanguage, srcSent, shotNum=0, dataset_type="text", prompt_type=None):
+def getUserPrompt(promptLanguage, srcLanguage="en", tgtLanguage="zh", srcSent=None, shotNum=0, dataset_type="text", prompt_type=None):
     userPrompts = dict()
     sentencePairsOfshot = [
         {'zh': '请问最近的地铁站在哪里？', 'en': 'Excuse me, where is the nearest subway station?'},\
