@@ -21,11 +21,46 @@ grad_accum_steps=4
 entry_file=./codes/train_qwen25vl_sft.py
 
 # Dataset configuration (replace with public dataset names)
-datasets=direct_finetune
+datasets=video_caption_finetune
 
 # Output configuration
-run_name="qwen25vl-7b-sft"
-output_dir=./checkpoint
+run_name="qwen25vl-7b-videoCaption-sft"
+timestamp=$(date +"%Y-%m-%d-%H-%M-%S")
+output_dir=./checkpoint/${timestamp}
+
+# Create output directory if it doesn't exist
+mkdir -p ${output_dir}
+
+# Create log file to record all parameters
+log_file="${output_dir}/training_params.log"
+echo "Training Parameters Log - $(date)" > ${log_file}
+echo "=================================" >> ${log_file}
+echo "" >> ${log_file}
+echo "Distributed Training Configuration:" >> ${log_file}
+echo "MASTER_ADDR: ${MASTER_ADDR}" >> ${log_file}
+echo "MASTER_PORT: ${MASTER_PORT}" >> ${log_file}
+echo "NNODES: ${NNODES}" >> ${log_file}
+echo "NPROC_PER_NODE: ${NPROC_PER_NODE}" >> ${log_file}
+echo "" >> ${log_file}
+echo "Model Configuration:" >> ${log_file}
+echo "DeepSpeed Config: ${deepspeed}" >> ${log_file}
+echo "Model Path: ${llm}" >> ${log_file}
+echo "" >> ${log_file}
+echo "Training Hyperparameters:" >> ${log_file}
+echo "Learning Rate: ${lr}" >> ${log_file}
+echo "Batch Size: ${batch_size}" >> ${log_file}
+echo "Gradient Accumulation Steps: ${grad_accum_steps}" >> ${log_file}
+echo "" >> ${log_file}
+echo "Dataset Configuration:" >> ${log_file}
+echo "Datasets: ${datasets}" >> ${log_file}
+echo "" >> ${log_file}
+echo "Output Configuration:" >> ${log_file}
+echo "Run Name: ${run_name}" >> ${log_file}
+echo "Output Directory: ${output_dir}" >> ${log_file}
+echo "Timestamp: ${timestamp}" >> ${log_file}
+echo "" >> ${log_file}
+echo "Entry File: ${entry_file}" >> ${log_file}
+echo "" >> ${log_file}
 
 # Training arguments
 args="
@@ -60,8 +95,50 @@ args="
     --run_name ${run_name} \
     --report_to wandb"
 
+# Log detailed training arguments
+echo "Detailed Training Arguments:" >> ${log_file}
+echo "DeepSpeed: ${deepspeed}" >> ${log_file}
+echo "Model Name/Path: ${llm}" >> ${log_file}
+echo "Dataset Use: ${datasets}" >> ${log_file}
+echo "Data Flatten: True" >> ${log_file}
+echo "Tune MM Vision: False" >> ${log_file}
+echo "Tune MM MLP: True" >> ${log_file}
+echo "Tune MM LLM: True" >> ${log_file}
+echo "BF16: True" >> ${log_file}
+echo "Output Dir: ${output_dir}" >> ${log_file}
+echo "Num Train Epochs: 2" >> ${log_file}
+echo "Per Device Train Batch Size: ${batch_size}" >> ${log_file}
+echo "Per Device Eval Batch Size: $((batch_size*2))" >> ${log_file}
+echo "Gradient Accumulation Steps: ${grad_accum_steps}" >> ${log_file}
+echo "Max Pixels: 50176" >> ${log_file}
+echo "Min Pixels: 784" >> ${log_file}
+echo "Eval Strategy: no" >> ${log_file}
+echo "Save Strategy: steps" >> ${log_file}
+echo "Save Steps: 1000" >> ${log_file}
+echo "Save Total Limit: 10" >> ${log_file}
+echo "Learning Rate: ${lr}" >> ${log_file}
+echo "Weight Decay: 0" >> ${log_file}
+echo "Warmup Ratio: 0.03" >> ${log_file}
+echo "Max Grad Norm: 1" >> ${log_file}
+echo "LR Scheduler Type: cosine" >> ${log_file}
+echo "Logging Steps: 1" >> ${log_file}
+echo "Model Max Length: 16384" >> ${log_file}
+echo "Gradient Checkpointing: True" >> ${log_file}
+echo "Dataloader Num Workers: 4" >> ${log_file}
+echo "Run Name: ${run_name}" >> ${log_file}
+echo "Report To: wandb" >> ${log_file}
+echo "" >> ${log_file}
+echo "Complete Training Arguments (Raw):" >> ${log_file}
+echo "${args}" >> ${log_file}
+echo "" >> ${log_file}
+echo "Training Command:" >> ${log_file}
+echo "torchrun --nproc_per_node=${NPROC_PER_NODE} --master_addr=${MASTER_ADDR} --master_port=${MASTER_PORT} ${entry_file} ${args}" >> ${log_file}
+echo "" >> ${log_file}
+echo "Training started at: $(date)" >> ${log_file}
+echo "=================================" >> ${log_file}
+
 # Launch training
 torchrun --nproc_per_node=${NPROC_PER_NODE} \
-         --master_addr=${MASTER_ADDR} \
-         --master_port=${MASTER_PORT} \
-         ${entry_file} ${args}
+        --master_addr=${MASTER_ADDR} \
+        --master_port=${MASTER_PORT} \
+        ${entry_file} ${args}

@@ -127,7 +127,9 @@ def getSrcPredsRefs(DirName):
     
     if "</think>" in preds[0] and "</think>" in preds[1]:
         preds = [pred.split("</think>")[-1].strip() for pred in preds]
-        
+    elif "<translation>" in preds[0] and "<translation>" in preds[1]:
+        preds = [pred.split("<translation>")[-1].strip() for pred in preds]
+    
     return src, preds, refs
 
 def computeTranslationMetrics(DirName, save_comet_scores=False, metrics = ['BLEU', 'METEOR', 'chrF', 'COMET', 'BLEURT']):
