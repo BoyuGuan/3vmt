@@ -47,33 +47,16 @@ def computeChrF(preds, refs):
 def computeCOMET(src, preds, refs):
 
     def compute(src, preds, refs):
-        # 网络异常的话这里会报错
-        # model_path = download_model("Unbabel/wmt22-comet-da")
-        # model = load_from_checkpoint(model_path)
-        # cometData = []
-        # for srcSent, predSent, refSent in zip(src, preds, refs):
-        #     cometData.append({"src": srcSent, "mt": predSent, "ref": refSent})
-        # torch.set_float32_matmul_precision("high")
-        # batch_sizes = [512, 256, 128, 64, 32]
-        # for batch_size in batch_sizes:
-        #     try:
-        #         cometScore = model.predict(cometData, batch_size=batch_size, gpus=1)[1]
-        #         break  # 如果预测成功，直接跳出循环
-        #     except Exception as e:
-        #         print(f"computeCOMET batch_size {batch_size} error: {str(e)}")
-        # else:
-        #     raise "Maybe batch_size is too large when computing comet." # 如果循环完整执行完（所有batch_size都失败），抛出异常
-        # return cometScore
         torch.set_float32_matmul_precision("high")
         comet_metric = evaluate.load('comet')
         comet_score = comet_metric.compute(predictions=preds, references=refs, sources=src)
         return comet_score
         
     def setNetwork(proxyAddress):
+        
         os.environ["http_proxy"] = proxyAddress
         os.environ["https_proxy"] = proxyAddress
         os.environ["all_proxy"] = proxyAddress
-        # os.system("curl ip.sb")
         
     try:
         return compute(src, preds, refs)
@@ -116,6 +99,39 @@ def detect_language_is_Chinese(text):
             return True
     return False
 
+def cleanLLMLongTranslate(predText):
+    """清理提取的翻译文本"""
+    text = text.strip()
+    
+    # 1. 检测重复模式
+    if len(text) > 200:
+        first_part = text[:50]
+        first_occurrence = text.find(first_part)
+        second_occurrence = text.find(first_part, first_occurrence + 1)
+        
+        if second_occurrence != -1 and second_occurrence < len(text) // 2:
+            text = text[:second_occurrence].strip()
+    
+    # 2. 移除HTML标签残留
+    text = re.sub(r'<[^>]+>', '', text)
+    text = re.sub(r'&lt;[^&]*&gt;', '', text)
+    
+    # 3. 清理多余的换行和空格
+    text = re.sub(r'\n+', ' ', text)
+    text = re.sub(r'\s+', ' ', text)
+    
+    # 4. 如果文本仍然异常长，尝试找到合理的截断点
+    if len(text) > 300:
+        for i, char in enumerate(text):
+            if char in '。！？.!?' and i > 50:
+                if i < 200:
+                    text = text[:i+1]
+                    break
+        else:
+            text = text[:200]
+    
+    return text.strip()
+
 def getSrcPredsRefs(DirName):
     with open(os.path.join(DirName, "results.json"), 'r') as f:
         prdsData = json.load(f)
@@ -126,14 +142,19 @@ def getSrcPredsRefs(DirName):
         refs.append(data['refs'])
     
     if "</think>" in preds[0] and "</think>" in preds[1]:
-        preds = [pred.split("</think>")[-1].strip() for pred in preds]
+        preds = [cleanLLMLongTranslate(pred.split("</think>")[-1].strip()) for pred in preds]
     elif "<translation>" in preds[0] and "<translation>" in preds[1]:
-        preds = [pred.split("<translation>")[-1].strip() for pred in preds]
-    
+        preds = [cleanLLMLongTranslate(pred.split("<translation>")[-1].strip()) for pred in preds]
+
     return src, preds, refs
 
 def computeTranslationMetrics(DirName, save_comet_scores=False, metrics = ['BLEU', 'METEOR', 'chrF', 'COMET', 'BLEURT']):
     src, preds, refs = getSrcPredsRefs(DirName)
+    
+    with open(os.path.join(DirName, "usingForTransMetric.json"), 'w') as f:
+        json.dump([{"src": itemSrc, "preds": itemPreds, "refs": itemRefs} for itemSrc, itemPreds, itemRefs \
+            in zip(src, preds, refs)], f, ensure_ascii=False, indent=4)
+    
     tgtIsChinese = detect_language_is_Chinese(refs[0])
 
     metricScores = []
