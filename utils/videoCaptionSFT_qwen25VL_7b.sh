@@ -21,10 +21,10 @@ grad_accum_steps=4
 entry_file=./codes/train_qwen25vl_sft.py
 
 # Dataset configuration (replace with public dataset names)
-datasets=direct_finetune
+datasets=video_caption_finetune
 
 # Output configuration
-run_name="qwen25vl-7b-sft"
+run_name="qwen25vl-7b-videoCaption-sft"
 timestamp=$(date +"%Y-%m-%d-%H-%M-%S")
 output_dir=./checkpoint/${timestamp}
 
