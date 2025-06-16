@@ -4,10 +4,10 @@
 MASTER_ADDR=${MASTER_ADDR:-"127.0.0.1"}
 MASTER_PORT=${MASTER_PORT:-$(shuf -i 20001-29999 -n 1)}
 NNODES=${WORLD_SIZE:-1}
-NPROC_PER_NODE=4
+NPROC_PER_NODE=2
 
 # DeepSpeed configuration
-deepspeed=./utils/zero2.json
+deepspeed=./utils/zero3.json
 
 # Model configuration
 llm=./huggingface/Qwen/Qwen2.5-VL-7B-Instruct  # Using HuggingFace model ID

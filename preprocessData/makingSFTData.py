@@ -18,7 +18,6 @@ def filterClips(clips, scores, alpha, num, language):
     
     logger.info(f"{language} train clips length: {len(clips)}")
     logger.info(f"{language} filtered clips length: {len(clipsFiltered)}")
-    logger.info(f"{language} filtered clips ratio: {len(clipsFiltered) / len(clips)}")
     
     json.dump(clipsFiltered, open(f"./data/work3/dataClean/Train_clips_{language}_filtered_{args.num}.json", "w"),\
         ensure_ascii=False, indent=4)
@@ -52,9 +51,18 @@ def makeVideoCaptionSFTData(clips, srcLanguage, tgtLanguage, number):
     outputSFTData = []
     
     if srcLanguage == "en":
-        videoCaption = json.load(open(f"./data/work3/videoCaption/Qwen2.5-VL-7B/eval-2025-06-07-14-38-06/results.json", "r"))
+        videoCaption =  json.load(open(f"./data/work3/videoCaption/Qwen2.5-VL-7B/eval-2025-06-07-14-38-06/results.json", "r"))
+        videoCaption += json.load(open(f"./data/work3/videoCaption/Qwen2.5-VL-7B/eval-2025-06-08-01-57-05/results.json", "r"))
+        videoCaption += json.load(open(f"./data/work3/videoCaption/Qwen2.5-VL-7B/eval-2025-06-08-13-16-27/results.json", "r"))
+        videoCaption += json.load(open(f"./data/work3/videoCaption/Qwen2.5-VL-7B/eval-2025-06-13-16-22-46/results.json", "r"))
+        videoCaption += json.load(open(f"./data/work3/videoCaption/Qwen2.5-VL-7B/eval-2025-06-13-16-22-43/results.json", "r"))
+        videoCaption += json.load(open(f"./data/work3/videoCaption/Qwen2.5-VL-7B/eval-2025-06-09-21-00-58/results.json", "r"))
     elif srcLanguage == "zh":
-        videoCaption = json.load(open(f"./data/work3/videoCaption/Qwen2.5-VL-7B/eval-2025-06-07-14-39-14/results.json", "r"))
+        videoCaption =  json.load(open(f"./data/work3/videoCaption/Qwen2.5-VL-7B/eval-2025-06-07-14-39-14/results.json", "r"))
+        videoCaption += json.load(open(f"./data/work3/videoCaption/Qwen2.5-VL-7B/eval-2025-06-08-01-51-58/results.json", "r"))
+        videoCaption += json.load(open(f"./data/work3/videoCaption/Qwen2.5-VL-7B/eval-2025-06-08-13-06-37/results.json", "r"))
+        videoCaption += json.load(open(f"./data/work3/videoCaption/Qwen2.5-VL-7B/eval-2025-06-09-00-21-06/results.json", "r"))
+        videoCaption += json.load(open(f"./data/work3/videoCaption/Qwen2.5-VL-7B/eval-2025-06-09-21-00-58/results.json", "r"))
     else:
         raise ValueError(f"srcLanguage {srcLanguage} not supported")
 
@@ -85,12 +93,10 @@ def makeVideoCaptionSFTData(clips, srcLanguage, tgtLanguage, number):
         ensure_ascii=False, indent=4)
     return outputSFTData
 
-
-
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("-n", "--num", type=int, default=10000)
+    parser.add_argument("-n", "--num", type=int, default=50000)
     parser.add_argument("--alpha", type=float, default=0.6)
     args = parser.parse_args()
     
@@ -103,7 +109,6 @@ if __name__ == "__main__":
     commandHandler.setFormatter(formatter)
     logger.addHandler(fileHandler)
     logger.addHandler(commandHandler)
-    
     
     args2Log = "Data Cleaning arguments: \n"
     for key, value in vars(args).items():
