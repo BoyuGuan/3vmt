@@ -17,14 +17,19 @@ lr=2e-7
 batch_size=1
 grad_accum_steps=4
 
+# Loss weighting configuration
+use_weighted_loss=true
+caption_loss_weight=0.5    # 系数a：videoCaption部分的loss权重
+translation_loss_weight=2.0    # 系数b：subtitleTranslation部分的loss权重
+
 # Training entry point
 entry_file=./codes/train_qwen25vl_sft.py
 
 # Dataset configuration (replace with public dataset names)
-datasets="direct_finetune%50"
+datasets="video_caption_finetune"
 
 # Output configuration
-run_name="qwen25vl-7b-sft"
+run_name="qwen25vl-7b-videoCaption-sft-weighted"
 timestamp=$(date +"%Y-%m-%d-%H-%M-%S")
 output_dir=./checkpoint/${timestamp}
 
@@ -50,6 +55,11 @@ echo "Training Hyperparameters:" >> ${log_file}
 echo "Learning Rate: ${lr}" >> ${log_file}
 echo "Batch Size: ${batch_size}" >> ${log_file}
 echo "Gradient Accumulation Steps: ${grad_accum_steps}" >> ${log_file}
+echo "" >> ${log_file}
+echo "Loss Weighting Configuration:" >> ${log_file}
+echo "Use Weighted Loss: ${use_weighted_loss}" >> ${log_file}
+echo "Caption Loss Weight: ${caption_loss_weight}" >> ${log_file}
+echo "Translation Loss Weight: ${translation_loss_weight}" >> ${log_file}
 echo "" >> ${log_file}
 echo "Dataset Configuration:" >> ${log_file}
 echo "Datasets: ${datasets}" >> ${log_file}
@@ -82,7 +92,7 @@ args="
     --eval_strategy "no" \
     --save_strategy "steps" \
     --save_steps 1000 \
-    --save_total_limit 10 \
+    --save_total_limit 20 \
     --learning_rate ${lr} \
     --weight_decay 0 \
     --warmup_ratio 0.03 \
@@ -93,7 +103,10 @@ args="
     --gradient_checkpointing True \
     --dataloader_num_workers 4 \
     --run_name ${run_name} \
-    --report_to wandb"
+    --report_to wandb \
+    --use_weighted_loss ${use_weighted_loss} \
+    --caption_loss_weight ${caption_loss_weight} \
+    --translation_loss_weight ${translation_loss_weight}"
 
 # Log detailed training arguments
 echo "Detailed Training Arguments:" >> ${log_file}
@@ -127,6 +140,9 @@ echo "Gradient Checkpointing: True" >> ${log_file}
 echo "Dataloader Num Workers: 4" >> ${log_file}
 echo "Run Name: ${run_name}" >> ${log_file}
 echo "Report To: wandb" >> ${log_file}
+echo "Use Weighted Loss: ${use_weighted_loss}" >> ${log_file}
+echo "Caption Loss Weight: ${caption_loss_weight}" >> ${log_file}
+echo "Translation Loss Weight: ${translation_loss_weight}" >> ${log_file}
 echo "" >> ${log_file}
 echo "Complete Training Arguments (Raw):" >> ${log_file}
 echo "${args}" >> ${log_file}

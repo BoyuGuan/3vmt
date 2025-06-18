@@ -36,3 +36,23 @@ class TrainingArguments(transformers.TrainingArguments):
     )
     mm_projector_lr: Optional[float] = None
     vision_tower_lr: Optional[float] = None
+    
+    # Loss weighting parameters
+    caption_loss_weight: float = field(
+        default=1.0,
+        metadata={
+            "help": "Weight for video caption loss in the combined loss function."
+        },
+    )
+    translation_loss_weight: float = field(
+        default=1.0,
+        metadata={
+            "help": "Weight for subtitle translation loss in the combined loss function."
+        },
+    )
+    use_weighted_loss: bool = field(
+        default=False,
+        metadata={
+            "help": "Whether to use weighted loss for caption and translation parts."
+        },
+    )
