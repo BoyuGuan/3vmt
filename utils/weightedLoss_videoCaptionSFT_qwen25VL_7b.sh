@@ -92,7 +92,7 @@ args="
     --eval_strategy "no" \
     --save_strategy "steps" \
     --save_steps 1000 \
-    --save_total_limit 20 \
+    --save_total_limit 50 \
     --learning_rate ${lr} \
     --weight_decay 0 \
     --warmup_ratio 0.03 \

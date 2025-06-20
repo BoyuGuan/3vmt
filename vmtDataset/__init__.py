@@ -27,12 +27,12 @@ VIDEOCHATGPT = {
 }
 
 DIRECT_FINETUNE = {
-    "annotation_path": "/home/byguan/3vmt/data/work3/sftData/sftData_2_50000.json",
+    "annotation_path": "/home/byguan/3vmt/data/work3/sftData/sftData_translation_only_100000.json",
     "data_path": "/home/byguan/3vmt",
 }
 
 VIDEO_CAPTION_FINETUNE = {
-    "annotation_path": "/home/byguan/3vmt/data/work3/sftData/videoCaption-SFTData_2_50000.json",
+    "annotation_path": "/home/byguan/3vmt/data/work3/sftData/sftData_with_caption_100000.json",
     "data_path": "/home/byguan/3vmt",
 }
 

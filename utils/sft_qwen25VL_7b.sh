@@ -21,7 +21,7 @@ grad_accum_steps=4
 entry_file=./codes/train_qwen25vl_sft.py
 
 # Dataset configuration (replace with public dataset names)
-datasets="direct_finetune%50"
+datasets="direct_finetune"
 
 # Output configuration
 run_name="qwen25vl-7b-sft"
@@ -82,7 +82,7 @@ args="
     --eval_strategy "no" \
     --save_strategy "steps" \
     --save_steps 1000 \
-    --save_total_limit 10 \
+    --save_total_limit 50 \
     --learning_rate ${lr} \
     --weight_decay 0 \
     --warmup_ratio 0.03 \
