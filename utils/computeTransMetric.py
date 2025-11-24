@@ -9,7 +9,15 @@ from nltk.translate.meteor_score import meteor_score
 from bleurt_pytorch import BleurtForSequenceClassification, BleurtTokenizer
 # from comet import download_model, load_from_checkpoint
 import evaluate
-import numpy as np 
+import numpy as np
+import warnings
+import sys
+
+# 抑制 multiprocess 在 Python 3.12 中的资源追踪器警告
+warnings.filterwarnings("ignore", category=ResourceWarning)
+if sys.version_info >= (3, 12):
+    import os
+    os.environ['PYTHONWARNINGS'] = 'ignore::ResourceWarning' 
 
 def computeBLEU(preds, refs, isZh=False, usingSacreBLEU=True):
     if usingSacreBLEU:
@@ -51,7 +59,7 @@ def computeCOMET(src, preds, refs):
         comet_metric = evaluate.load('comet')
         comet_score = comet_metric.compute(predictions=preds, references=refs, sources=src)
         return comet_score
-        
+
     def setNetwork(proxyAddress):
         
         os.environ["http_proxy"] = proxyAddress
@@ -62,7 +70,7 @@ def computeCOMET(src, preds, refs):
         return compute(src, preds, refs)
     except:
         print("change network_address")
-        proxy_addresses = ["http://10.6.24.35:10452", "http://172.18.31.59:7890", "http://10.5.28.23:7890"]
+        proxy_addresses = ["http://172.18.31.59:7890", "http://10.5.29.44:7897"]
         for address in proxy_addresses:
             try:
                 setNetwork(address)
@@ -200,5 +208,3 @@ if __name__ == "__main__":
                                 "Default is to compute all metrics.")
     parser.add_argument("-sc", "--save_comet_scores", action="store_true")
     args = parser.parse_args()
-
-    computeTranslationMetrics(args.dir_path, args.save_comet_scores, args.metrics)

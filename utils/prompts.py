@@ -9,10 +9,11 @@ def getSystemPrompt(modelName, modelType,promptType):
             return {"role": "system","content": [{"type": "text", "text": "You are an expert translator who is fluent in English and Chinese."},],}
         else:
             raise TypeError("Model type format error!")
-    modelName2Type = {"Qwen2-7B-Instruct": "qwen2", "Qwen2.5-7B-Instruct": "qwen2", "Qwen2.5-14B-Instruct": "qwen2", "Llama-3-8B-Instruct": "llama3", "Qwen3-30B-A3B":"qwen2",\
+    modelName2Type = {"Qwen2-7B-Instruct": "qwen2", "Qwen2.5-7B-Instruct": "qwen2", "Qwen2.5-14B-Instruct": "qwen2", "Llama-3-8B-Instruct": "llama3", \
         "LLaVA-NeXT-Video-7B-hf":"llava", "Qwen2-VL-7B-Instruct":"qwen2-vl","MiniCPM-V-2_6":"minicpm","Qwen2.5-VL-7B-Instruct":"qwen2.5-vl","Qwen2.5-VL-32B-Instruct":"qwen2.5-vl",\
-            "Qwen2.5-VL-3B-Instruct":"qwen2.5-vl", "internlm3-8b-instruct":"internlm3", "Qwen2.5-3B-Instruct": "qwen2", "Qwen2.5-32B-Instruct": "qwen2","Qwen3-4B": "qwen2", "Qwen3-8B": "qwen2", \
-        "InternVideo2_5_Chat_8B":"InternVideo2_5","Llama-3.2-11B-Vision-Instruct":"llama3.2-vision","Llama-3.1-8B-Instruct":"llama3.1", "Qwen3-32B": "qwen2", "QwQ-32B": "QWQ"}
+            "Qwen2.5-VL-3B-Instruct":"qwen2.5-vl", "internlm3-8b-instruct":"internlm3", "Qwen2.5-3B-Instruct": "qwen2", "Qwen3-4B": "qwen2", "Qwen3-8B": "qwen2", "Qwen3-30B-A3B":"qwen2",\
+        "InternVideo2_5_Chat_8B":"InternVideo2_5","Llama-3.2-11B-Vision-Instruct":"llama3.2-vision","Llama-3.1-8B-Instruct":"llama3.1", "Qwen3-32B": "qwen2", "InternVL3-14B":"internvl3", \
+            "Qwen3-VL-8B-Instruct":"qwen3-vl", "Qwen3-VL-4B-Instruct":"qwen3-vl", "Qwen3-VL-8B-Thinking":"qwen3-vl", "Qwen3-VL-4B-Thinking":"qwen3-vl", "InternVL3_5-8B": "internvl3", "InternVL3_5-4B": "internvl3"}
     systemPrompts = dict()
     systemPrompts["qwen2"] = {"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."}
     systemPrompts["llama3"] = None    
@@ -20,16 +21,18 @@ def getSystemPrompt(modelName, modelType,promptType):
     systemPrompts["qwen2-vl"] = None
     systemPrompts["minicpm"] = None
     systemPrompts["qwen2.5-vl"] = None
-    systemPrompts["QWQ"] = None    
     systemPrompts["internlm3"] = {"role": "system", "content": """You are an AI assistant whose name is InternLM (书生·浦语).
     - InternLM (书生·浦语) is a conversational language model that is developed by Shanghai AI Laboratory (上海人工智能实验室). It is designed to be helpful, honest, and harmless.
     - InternLM (书生·浦语) can understand and communicate fluently in the language chosen by the user such as English and 中文."""}
     systemPrompts["InternVideo2_5"] = None
     systemPrompts["llama3.2-vision"] = None
     systemPrompts["llama3.1"] = None
+    systemPrompts["internvl3"] = None
+    systemPrompts["qwen3-vl"] = None
+
     return systemPrompts[modelName2Type[modelName]]
 
-def getUserPrompt(promptLanguage, srcLanguage="en", tgtLanguage="zh", srcSent=None, shotNum=0, dataset_type="text", prompt_type=None):
+def getUserPrompt(promptLanguage, srcLanguage, tgtLanguage, srcSent, shotNum=0, dataset_type="text", prompt_type=None):
     userPrompts = dict()
     sentencePairsOfshot = [
         {'zh': '请问最近的地铁站在哪里？', 'en': 'Excuse me, where is the nearest subway station?'},\
@@ -55,46 +58,6 @@ def getUserPrompt(promptLanguage, srcLanguage="en", tgtLanguage="zh", srcSent=No
             userPrompts["en"] = f"Please translate the following sentences into {languageID2text['en'][tgtLanguage]}. The input sentences are wrapped by <sentence> and </sentence>:\n"
             userPrompts["en"] += f"\n<sentence>\n{srcSent}\n</sentence>\n"
             userPrompts["en"] += "\nThe translated result should be wrapped by <translated> and </translated>."
-        if prompt_type == "textReasoning":
-            userPrompts["en"] = f"""You are a translation-assistant reasoning model.
-
-**Task**
-Given a piece of text (a subtitle line or a video description), decide whether additional video context is necessary to translate it accurately, and—if so—pinpoint exactly which parts of the text need that help and what visual evidence would resolve them.
-
-**Step-by-step guidelines**
-
-1. need_video  
-   • Output **true** if video context could remove ambiguity about meaning, speaker, entities, actions, or scene.  
-   • Output **false** if the text is semantically clear, self-contained, and unambiguous without visual cues.
-
-2. video_aid (only if need_video is true)  
-   a. **text_fragments** – list every word or phrase whose meaning depends on the video.  
-   b. **video_focus** – for each fragment (or group of fragments), briefly state the kind of visual cue that would help, e.g.  
-      • object/entity
-      • scene/location
-      • action/motion
-      • speaker identity / lip reading  
-      • on-screen text / signage
-
-**Output format** – valid JSON only, no extra keys, no commentary:
-
-{{
-  "need_video": true | false,
-  "video_aid": {{
-    "text_fragments": ["<fragment 1>", "<fragment 2>", "..."],
-    "video_focus": ["<visual cue 1>", "<visual cue 2>", "..."]
-  }}
-}}
-
-• If "need_video" is false, set "video_aid" to {{}} (an empty object).
-• Ensure the JSON is syntactically valid and contains no additional fields.
-Now analyze the input text below:
-{srcSent}
-
-Respond with JSON only.
-"""
-            userPrompts["zh"] = userPrompts["en"]
-
     elif dataset_type == "video-text":
         if shotNum != 0:
             raise TypeError("Only zero shot is supported now in video-text")
@@ -106,14 +69,6 @@ Respond with JSON only.
             userPrompts["en"] = f"You are provided with a video context. Your task is to translate the given input sentence from {languageID2text['zh'][srcLanguage]} into {languageID2text['zh'][tgtLanguage]}, strictly based on the video's content.\n"
             userPrompts["en"] += f"Requirements:\nONLY output the translated sentence.\nEnsure the translation is consistent with the video's context and meaning.\n\n" 
             userPrompts["en"] += f"Input sentence:\n{srcSent}\nTranslated sentence:\n"
-        elif prompt_type == "videoCaption":
-            userPrompts["zh"] = f"向我描述一下这个视频。"
-            userPrompts["en"] = f"Describe this video to me."
-        elif prompt_type == "videoCaptionThenTranslate":
-            userPrompts["en"] = f"""Describe this video to me. Then, based on both the video description and the original source sentence, translate the source sentence into the {languageID2text['en'][tgtLanguage]}. Separate the video description and the translation with <translation>.
-Source sentence: 
-{srcSent}"""
-            userPrompts["zh"] = userPrompts["en"]
     elif dataset_type == 'image-text':
         if shotNum != 0:
             raise TypeError("Only zero shot is supported now in video-text")

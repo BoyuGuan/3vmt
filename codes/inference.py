@@ -5,8 +5,9 @@ import time
 import av
 import numpy as np
 import torch
-from transformers import AutoModel,AutoTokenizer, AutoModelForCausalLM, MllamaForConditionalGeneration, LlavaNextVideoProcessor, LlavaNextVideoForConditionalGeneration, Qwen2VLForConditionalGeneration, Qwen2_5_VLForConditionalGeneration, AutoProcessor 
+from transformers import AutoModel, AutoModelForImageTextToText, AutoTokenizer, AutoModelForCausalLM, MllamaForConditionalGeneration, LlavaNextVideoProcessor, LlavaNextVideoForConditionalGeneration, Qwen2VLForConditionalGeneration, Qwen2_5_VLForConditionalGeneration, AutoProcessor 
 from torch.utils.data import random_split, DataLoader
+from transformers import GenerationConfig
 from tqdm import tqdm
 import os
 import sys
@@ -15,7 +16,7 @@ import logging
 from utils.prompts import getSystemPrompt, getUserPrompt
 from utils.computeTransMetric import computeBLEU, computeMETEOR, computeChrF, computeCOMET, computeBLEURT
 import json
-from vmtDataset.vmtDataset import vmtDatasetForLLM
+from vmt3_dataset.vmtDataset import vmtDatasetForLLM
 from qwen_vl_utils import process_vision_info
 
 logger = logging.getLogger('evalModel')
@@ -24,7 +25,7 @@ logger.setLevel(logging.INFO)
 
 
 # 纯文本大模型跑纯文本数据集
-def getSrcPredsRefsTextModel(dataLoader, model, tokenizer, args):
+def getSrcPredsRefsTextModel(dataLoader, model, tokenizer, args, generationConfig=None):
     src, preds, refs, clipIDs = [], [], [], []
 
     # model.eval()
@@ -36,9 +37,9 @@ def getSrcPredsRefsTextModel(dataLoader, model, tokenizer, args):
         
         batchInput = []
         assert len(batch_data["src_text"]) == len(batch_data["tgt_text"]), "Pairs in batch not equal"
-        itemSystemPrompt = getSystemPrompt(args.model_name, args.model_type, args.system_prompt_type)
         for i in range(len(batch_data["src_text"])):
             inputItem = []
+            itemSystemPrompt = getSystemPrompt(args.model_name, args.model_type, args.system_prompt_type)
             if itemSystemPrompt is not None:
                 inputItem.append(itemSystemPrompt)
             inputItem.append({"role": "user", "content": getUserPrompt(args.prompt_language, args.source_language, args.target_language,\
@@ -46,19 +47,11 @@ def getSrcPredsRefsTextModel(dataLoader, model, tokenizer, args):
             batchInput.append(inputItem)
         # print(batchInput)
         # print(batchInput[0])
-        if args.thinking == False:
-            text_batch = tokenizer.apply_chat_template(
-                batchInput,
-                tokenize=False,
-                add_generation_prompt=True,
-                enable_thinking=False
-            )
-        else:
-            text_batch = tokenizer.apply_chat_template(
-                batchInput,
-                tokenize=False,
-                add_generation_prompt=True,
-            )
+        text_batch = tokenizer.apply_chat_template(
+            batchInput,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
         # model_inputs_batch = tokenizer(text_batch, return_tensors="pt", max_length=args.max_src_length, truncation=True).to(model.device)
         if args.model_name == "Llama-3.1-8B-Instruct":
             tokenizer.pad_token = tokenizer.eos_token
@@ -66,6 +59,7 @@ def getSrcPredsRefsTextModel(dataLoader, model, tokenizer, args):
         generated_ids_batch = model.generate(
             **model_inputs_batch,
             max_new_tokens=args.max_tgt_length,
+            # generation_config=generationConfig
         )
 
         generated_ids_batch = generated_ids_batch[:, model_inputs_batch.input_ids.shape[1]:]
@@ -82,7 +76,7 @@ def getSrcPredsRefsTextModel(dataLoader, model, tokenizer, args):
     return src, preds, refs, clipIDs
 
 # 实现了多模态模型跑 纯文本数据集、 视频-文本数据集 和 图片-文本数据集
-def getSrcPredsRefsMultimodalModel(dataLoader, model, processor, args):
+def getSrcPredsRefsMultimodalModel(dataLoader, model, processor, args, generationConfig=None):
     
     src, preds, refs, clipIDs = [], [], [], []
     tokenizer = processor
@@ -114,6 +108,50 @@ def getSrcPredsRefsMultimodalModel(dataLoader, model, processor, args):
             preds += [output_text] 
             # print(preds)
             continue  
+        elif args.model_name == "InternVL3-14B":
+            if args.dataset_type == "video-text":
+                pixel_values = batch_data["videoClip"][0]["pixel_values"]
+                num_patches_list = batch_data["videoClip"][0]["num_patches_list"]
+                pixel_values = pixel_values.to(torch.bfloat16).to(model.device)
+                video_prefix = "".join([f"Frame{i+1}: <image>\n" for i in range(len(num_patches_list))])
+                question1 = getUserPrompt(args.prompt_language, args.source_language, args.target_language, batch_data["src_text"][0], args.shot_num, args.dataset_type, args.prompt_type)
+                question = video_prefix + question1
+            elif args.dataset_type == "image-text" or args.dataset_type == "images-text":
+                # 对于图像输入，需要加载pixel_values
+                from utils.InternVideo import load_image
+                if args.image_selection == "multiple" or args.image_selection == "chooseImage":
+                    # 处理多张图片
+                    all_pixel_values = []
+                    for img_path in batch_data["imagePath"][0]:
+                        pixel_values = load_image(img_path, input_size=448, max_num=12).to(torch.bfloat16).to(model.device)
+                        all_pixel_values.append(pixel_values)
+                    pixel_values = torch.cat(all_pixel_values, dim=0)
+                    image_prefix = "".join([f"<image>\n" for _ in range(len(all_pixel_values))])
+                    question1 = getUserPrompt(args.prompt_language, args.source_language, args.target_language, batch_data["src_text"][0], args.shot_num, args.dataset_type, args.prompt_type)
+                    question = image_prefix + question1
+                else:
+                    # 处理单张图片
+                    pixel_values = load_image(batch_data["imagePath"][0], input_size=448, max_num=12).to(torch.bfloat16).to(model.device)
+                    question1 = getUserPrompt(args.prompt_language, args.source_language, args.target_language, batch_data["src_text"][0], args.shot_num, args.dataset_type, args.prompt_type)
+                    question = "<image>\n" + question1
+            else:
+                # 纯文本
+                question = getUserPrompt(args.prompt_language, args.source_language, args.target_language, batch_data["src_text"][0], args.shot_num, args.dataset_type, args.prompt_type)
+                pixel_values = None
+            
+            generation_config = dict(
+                max_new_tokens=args.max_tgt_length, 
+                do_sample=True,
+                temperature=0.1,
+                top_p=0.9
+            )
+            if pixel_values is not None:
+                output_text = model.chat(tokenizer, pixel_values, question, generation_config, history=None, return_history=False)
+            else:
+                # 纯文本情况
+                output_text, _ = model.chat(tokenizer, None, question, generation_config, history=None, return_history=True)
+            preds += [output_text] 
+            continue
         for i in range(len(batch_data["src_text"])):
             promptItem = []
             if itemSystemPrompt is not None:
@@ -128,16 +166,17 @@ def getSrcPredsRefsMultimodalModel(dataLoader, model, processor, args):
                 assert len(batch_data["tgt_text"]) == len(batch_data["videoClip"]), "Video-text pairs in batch not equal"
                 if args.model_name == "LLaVA-NeXT-Video-7B-hf":
                     promptItem.append({"role": "user", "content": [{"type": "text", "text": userPrompt}, {"type": "video"}]})
-                elif "Qwen2-VL" in args.model_name or "Qwen2.5-VL" in args.model_name:
+                elif "Qwen2-VL" in args.model_name or "Qwen2.5-VL" in args.model_name or "Qwen3-VL" in args.model_name:
                     video_path = batch_data["videoClipPath"][i]
                     promptItem.append({"role": "user", "content": [{"type": "video","video": video_path, "max_pixels": 360 * 420, "fps": 1.0,}, {"type": "text", "text": userPrompt}]})
+                    generationConfig = None
                 elif args.model_name == "MiniCPM-V-2_6":
                     promptItem.append({"role": "user", "content": batch_data["videoClip"][i] + [userPrompt]})
                 else:
                     raise TypeError("Model name error!")
             elif args.dataset_type == "image-text":
                 assert len(batch_data["src_text"]) == len(batch_data["imagePath"]), "Image-text pairs in batch not equal"
-                if "Qwen2-VL" in args.model_name or "Qwen2.5-VL" in args.model_name:
+                if "Qwen2-VL" in args.model_name or "Qwen2.5-VL" in args.model_name or "Qwen3-VL" in args.model_name :
                     image_path = batch_data["imagePath"][i]
                     if args.image_selection == "multiple":
                         contentList = [{"type": "image", "image": path, "max_pixels": 360 * 420} for path in image_path]
@@ -145,6 +184,7 @@ def getSrcPredsRefsMultimodalModel(dataLoader, model, processor, args):
                         contentList = [{"type": "image", "image": image_path, "max_pixels": 360 * 420}]
                     contentList += [{"type": "text", "text": userPrompt}]
                     promptItem.append({"role": "user", "content": contentList})
+                    generationConfig = None
                 elif args.model_name == "LLaVA-NeXT-Video-7B-hf":
                     promptItem.append({"role": "user", "content": [{"type": "text", "text": userPrompt}, {"type": "image"},]})
                 elif args.model_name == "MiniCPM-V-2_6":
@@ -175,12 +215,12 @@ def getSrcPredsRefsMultimodalModel(dataLoader, model, processor, args):
                 inputs_batch = processor(text=prompts, padding=True, return_tensors="pt").to(model.device)
             elif args.dataset_type == "video-text":
                 videos = batch_data["videoClip"]
-                if "Qwen2-VL" in args.model_name or "Qwen2.5-VL" in args.model_name:
+                if "Qwen2-VL" in args.model_name or "Qwen2.5-VL" in args.model_name or "Qwen3-VL" in args.model_name:
                     images, videos = process_vision_info(prompts_raw)
                 inputs_batch = processor(text=prompts, images=images, videos=videos, padding=True, return_tensors="pt").to(model.device)
             elif args.dataset_type == "image-text" or args.dataset_type == "images-text":
                 images = batch_data["image"]
-                if "Qwen2-VL" in args.model_name or "Qwen2.5-VL" in args.model_name:
+                if "Qwen2-VL" in args.model_name or "Qwen2.5-VL" in args.model_name or "Qwen3-VL" in args.model_name:
                     images, videos = process_vision_info(prompts_raw)
                 if args.model_name == "Llama-3.2-11B-Vision-Instruct":
                     inputs_batch = processor(images=images,text=prompts,add_special_tokens=False,padding=True, return_tensors="pt").to(model.device)
@@ -192,6 +232,7 @@ def getSrcPredsRefsMultimodalModel(dataLoader, model, processor, args):
             output_ids = model.generate(
                 **inputs_batch,
                 max_new_tokens=args.max_tgt_length,
+                # generation_config=generationConfig
             )
             generated_ids = [output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs_batch.input_ids, output_ids)]
             output_text = processor.batch_decode(generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True)
@@ -266,43 +307,36 @@ def saveResult(src, preds, refs, clipIDs, logDirName):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset_path", type=str, required=True, default=None)
-    parser.add_argument("--dataset_type", type=str, default='text', choices=['text', 'video-text', 'image-text'], help='Dataset type (text, video-text, image-text)')
-    parser.add_argument("--model_type", type=str, default='multimodal', choices=['text', 'multimodal'], help='Model type (text or multimodal), default is multimodal')
+    parser.add_argument("--dataset_type", type=str, default='text', help='Dataset type (text, video-text, image-text)')
+    parser.add_argument("--model_type", type=str, default='multimodal', help='Model type (text or multimodal), default is multimodal')
     parser.add_argument("--video_path", type=str, default='./data/TriFine/videoClips', help='Video path')
     parser.add_argument("--model_path", type=str, default='./huggingface/Qwen/Qwen2.5-VL-7B-Instruct')
     parser.add_argument("--model_name", type=str, default=None)
-    parser.add_argument("--image_selection", type=str, default=None, choices=['mid', 'random', 'multiple', 'select', 'given'], help='Image selection (mid, random, multiple, select, given)')
-    parser.add_argument('-sl', "--source_language", type=str, default='en', choices=['zh', 'en'], help='Source language (zh or en)')
-    parser.add_argument('-tl', "--target_language", type=str, default='zh', choices=['zh', 'en'], help='Target language (zh or en)')
-    parser.add_argument('-pl', "--prompt_language", type=str, default='en', choices=['zh', 'en'], help='Prompt language (zh or en)')
-    parser.add_argument('-s', '--start_index', type=int, default=None, help='Start index, unit 10K')
-    parser.add_argument('-e', '--end_index', type=int, default=None, help='End index, unit 10K')
+    parser.add_argument("--image_selection", type=str, default=None, help='Image selection (mid, random, multiple, select, given)')
+    parser.add_argument('-sl', "--source_language", type=str, default='en', help='Source language (zh or en)')
+    parser.add_argument('-tl', "--target_language", type=str, default='zh', help='Target language (zh or en)')
+    parser.add_argument('-pl', "--prompt_language", type=str, default='en', help='Prompt language (zh or en)')
     parser.add_argument('-spt', '--system_prompt_type', type=str, default='default')    
     parser.add_argument('-sn', '--shot_num', type=int, default=0)    
     # parser.add_argument('--is_test_set', action='store_true', help="Whether to evaluate test set.")
     parser.add_argument('-bs', '--batch_size', type=int, default=256, help='Batch size')
     parser.add_argument("--max_src_length", type=int, default= 1024)
     parser.add_argument("--max_tgt_length", type=int, default= 256)
+    # parser.add_argument("--generation_config_dir", type=str, default='./checkpoint/config/generationConfig')
+    parser.add_argument("--generation_config_dir", type=str, default=None)
+
     parser.add_argument("--trans_metric", action="store_false", help="Whether to compute translation metrics. Default is True, if set it is False.")
     parser.add_argument("--metrics", nargs='+', default=['BLEU', 'METEOR', 'chrF', 'COMET', 'BLEURT'],
                     help="Specify which metrics to compute. Available options: BLEU, METEOR, chrF, COMET, BLEURT. "
                             "Default is to compute all metrics.")
     parser.add_argument("-pt", "--prompt_type", type=str, default=None, help="Prompt type, default is None, which means of translation prompt. And can set to `chooseImage` to choose image.")
-    parser.add_argument("--special", type=str, default=None, help="Special setting")
+    parser.add_argument("-s", "--special", type=str, default=None, help="Special setting")
     parser.add_argument("--cluster_path", type=str, default=None, help="Image path")
     parser.add_argument("--picID_path", type=str, default=None, help="The clip ID to picture ID file path.")
     parser.add_argument("--given_pic_ID", type=int, default= None)
     parser.add_argument("--vatex", action="store_true", help="Whether to use VATEX dataset.")
-    parser.add_argument("--thinking", action="store_true", help="Whether to use thinking mode.")
     
     args = parser.parse_args()
-
-    if args.model_name is None:
-        args.model_name = args.model_path.split('/')[-1]
-
-    if args.thinking or "QwQ" in args.model_name: # QwQ 模型默认开启thinking模式
-        assert "QwQ" in args.model_name or "Qwen3" in args.model_name, "Model is not support thinking!"
-        args.max_tgt_length = 2048 if args.max_tgt_length < 2048 else args.max_tgt_length
 
     # log 设置
     while True:
@@ -323,10 +357,16 @@ if __name__ == "__main__":
     logger.addHandler(fileHandler)
     logger.addHandler(commandHandler)
     
+    if args.model_name is None:
+        args.model_name = args.model_path.split('/')[-1]
     
     if args.model_name == "InternVideo2_5_Chat_8B":
         args.batch_size = 1
         print("InternVideo2_5_Chat_8B model only support batch_size=1")
+        
+    if args.model_name == "InternVL3-14B":
+        args.batch_size = 1
+        print("InternVL3-14B model only support batch_size=1")
         
     # 将参数记录到日志中
     args2Log = "Script arguments: \n"
@@ -353,9 +393,14 @@ if __name__ == "__main__":
     #     testDataloader = DataLoader(validDataset, collate_fn=modelName2collate_fn[args.model_name], batch_size=args.batch_size,\
     #         num_workers=16, pin_memory=False, shuffle=False, prefetch_factor=2)
     
+    if args.generation_config_dir is not None:
+        generationConfig = GenerationConfig.from_pretrained(args.generation_config_dir)
+    else:
+        generationConfig = None
+    
     # 对纯文本和多模态大模型做了区分
     if args.model_type == "text":
-        if "Qwen2" in args.model_name or "Qwen3" in args.model_name or "Llama-3" in args.model_name or "QwQ" in args.model_name:
+        if "Qwen2" in args.model_name or "Qwen3" in args.model_name or "Llama-3" in args.model_name:
             tokenizer = AutoTokenizer.from_pretrained(args.model_path, padding_side="left")
             model = AutoModelForCausalLM.from_pretrained(args.model_path, torch_dtype="auto", device_map="auto")
         elif args.model_name == "internlm3-8b-instruct":
@@ -364,7 +409,8 @@ if __name__ == "__main__":
             model.eval()
         else:
             raise TypeError("Model name not supported!")
-        src, preds, refs, clipIDs = getSrcPredsRefsTextModel(testDataloader, model, tokenizer, args)
+        src, preds, refs, clipIDs = getSrcPredsRefsTextModel(testDataloader, model, tokenizer, args, generationConfig)
+        # src, preds, refs = getSrcPredsRefs(testDataloader, model, tokenizer, model.generation_config)
     elif args.model_type == "multimodal":
         if args.model_name == "LLaVA-NeXT-Video-7B-hf":
             model = LlavaNextVideoForConditionalGeneration.from_pretrained(args.model_path, torch_dtype="auto",device_map="auto")
@@ -375,6 +421,10 @@ if __name__ == "__main__":
         elif "Qwen2.5-VL" in args.model_name:
             model = Qwen2_5_VLForConditionalGeneration.from_pretrained(args.model_path, torch_dtype="auto",device_map="auto")
             processor = AutoProcessor.from_pretrained(args.model_path, padding_side='left')
+        elif  "Qwen3-VL" in args.model_name:
+            model = AutoModelForImageTextToText.from_pretrained(args.model_path, torch_dtype="auto",device_map="auto")
+            processor = AutoProcessor.from_pretrained(args.model_path, padding_side='left')
+
         elif args.model_name == "MiniCPM-V-2_6":
             # 使用torch_dtype="auto"会报错
             model = AutoModel.from_pretrained(args.model_path, trust_remote_code=True,
@@ -388,26 +438,29 @@ if __name__ == "__main__":
             tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True)
             model = AutoModel.from_pretrained(args.model_path,trust_remote_code=True).half().cuda().to(torch.bfloat16)
             processor = tokenizer
+        elif args.model_name == "InternVL3-14B":
+            tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True, use_fast=False)
+            # 参考2.py中的模型加载方式
+            model = AutoModel.from_pretrained(
+                args.model_path,
+                torch_dtype=torch.bfloat16,
+                load_in_8bit=False,
+                low_cpu_mem_usage=True,
+                use_flash_attn=True,
+                trust_remote_code=True,
+                device_map="auto").eval()
+            processor = tokenizer
         elif args.model_name == "Llama-3.2-11B-Vision-Instruct":
             model = MllamaForConditionalGeneration.from_pretrained(args.model_path,torch_dtype=torch.bfloat16,device_map="auto")
             processor = AutoProcessor.from_pretrained(args.model_path, padding_side='left')
         else:
             raise TypeError("Model name not supported!")
-        src, preds, refs, clipIDs = getSrcPredsRefsMultimodalModel(testDataloader, model, processor, args)
+        src, preds, refs, clipIDs = getSrcPredsRefsMultimodalModel(testDataloader, model, processor, args, generationConfig)
     else:
         raise TypeError("Model type format error!")
-
-    logger.info(f"Inference finished! Saving results...")
     saveResult(src, preds, refs, clipIDs, logDirName)
 
-
     if args.trans_metric:
-        
-        # 如果使用thinking模式，需要从preds中提取content部分
-        if args.thinking or ("</think>" in preds[0] and "</think>" in preds[1]):
-            preds = [pred.split("</think>")[-1].strip() for pred in preds]
-            logger.info("已从thinking模式输出中提取content部分")
-        
         # 计算翻译指标
         logger.info(f"\033[91m Evaluation Resutlts")
         if 'BLEU' in args.metrics:
