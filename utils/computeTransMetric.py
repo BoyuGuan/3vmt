@@ -13,11 +13,6 @@ import numpy as np
 import warnings
 import sys
 
-# 抑制 multiprocess 在 Python 3.12 中的资源追踪器警告
-warnings.filterwarnings("ignore", category=ResourceWarning)
-if sys.version_info >= (3, 12):
-    import os
-    os.environ['PYTHONWARNINGS'] = 'ignore::ResourceWarning' 
 
 def computeBLEU(preds, refs, isZh=False, usingSacreBLEU=True):
     if usingSacreBLEU:

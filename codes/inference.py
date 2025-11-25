@@ -215,15 +215,31 @@ def getSrcPredsRefsMultimodalModel(dataLoader, model, processor, args, generatio
                 inputs_batch = processor(text=prompts, padding=True, return_tensors="pt").to(model.device)
             elif args.dataset_type == "video-text":
                 videos = batch_data["videoClip"]
-                if "Qwen2-VL" in args.model_name or "Qwen2.5-VL" in args.model_name or "Qwen3-VL" in args.model_name:
-                    images, videos = process_vision_info(prompts_raw)
-                inputs_batch = processor(text=prompts, images=images, videos=videos, padding=True, return_tensors="pt").to(model.device)
+                if "Qwen3-VL" in args.model_name:
+                    images, videos, video_kwargs = process_vision_info(prompts_raw, image_patch_size=16, return_video_kwargs=True, return_video_metadata=True)
+                    if videos is not None:
+                        videos, video_metadatas = zip(*videos)
+                        videos, video_metadatas = list(videos), list(video_metadatas)
+                    else:
+                        video_metadatas = None
+                    inputs_batch = processor(text=prompts, images=images, videos=videos, padding=True, video_metadata=video_metadatas, return_tensors="pt", do_resize=False, **video_kwargs).to(model.device)
+                else:
+                    if "Qwen2-VL" in args.model_name or "Qwen2.5-VL" in args.model_name:
+                        images, videos = process_vision_info(prompts_raw)
+                    inputs_batch = processor(text=prompts, images=images, videos=videos, padding=True, return_tensors="pt").to(model.device)
+
+
             elif args.dataset_type == "image-text" or args.dataset_type == "images-text":
                 images = batch_data["image"]
-                if "Qwen2-VL" in args.model_name or "Qwen2.5-VL" in args.model_name or "Qwen3-VL" in args.model_name:
+                if "Qwen3-VL" in args.model_name:
+                    images, videos = process_vision_info(prompts_raw, image_patch_size=16)
+                elif "Qwen2-VL" in args.model_name or "Qwen2.5-VL" in args.model_name:
                     images, videos = process_vision_info(prompts_raw)
+
                 if args.model_name == "Llama-3.2-11B-Vision-Instruct":
                     inputs_batch = processor(images=images,text=prompts,add_special_tokens=False,padding=True, return_tensors="pt").to(model.device)
+                elif "Qwen3-VL" in args.model_name:
+                    inputs_batch = processor(text=prompts, images=images, videos=videos, padding=True, return_tensors="pt", do_resize=False).to(model.device)
                 else:
                     inputs_batch = processor(text=prompts, images=images, videos=videos, padding=True, return_tensors="pt").to(model.device)
             else :
