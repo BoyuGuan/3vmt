@@ -1,18 +1,15 @@
 import argparse
 import os
+import re
 import json
 from sacrebleu.metrics import BLEU
 import jieba
 import torch
-from tqdm import tqdm
 from nltk.translate.meteor_score import meteor_score
 from bleurt_pytorch import BleurtForSequenceClassification, BleurtTokenizer
 # from comet import download_model, load_from_checkpoint
 import evaluate
 import numpy as np
-import warnings
-import sys
-
 
 def computeBLEU(preds, refs, isZh=False, usingSacreBLEU=True):
     if usingSacreBLEU:
@@ -104,36 +101,36 @@ def detect_language_is_Chinese(text):
 
 def cleanLLMLongTranslate(predText):
     """清理提取的翻译文本"""
-    text = text.strip()
+    predText = predText.strip()
     
     # 1. 检测重复模式
-    if len(text) > 200:
-        first_part = text[:50]
-        first_occurrence = text.find(first_part)
-        second_occurrence = text.find(first_part, first_occurrence + 1)
+    if len(predText) > 200:
+        first_part = predText[:50]
+        first_occurrence = predText.find(first_part)
+        second_occurrence = predText.find(first_part, first_occurrence + 1)
         
-        if second_occurrence != -1 and second_occurrence < len(text) // 2:
-            text = text[:second_occurrence].strip()
+        if second_occurrence != -1 and second_occurrence < len(predText) // 2:
+            predText = predText[:second_occurrence].strip()
     
     # 2. 移除HTML标签残留
-    text = re.sub(r'<[^>]+>', '', text)
-    text = re.sub(r'&lt;[^&]*&gt;', '', text)
+    predText = re.sub(r'<[^>]+>', '', predText)
+    predText = re.sub(r'&lt;[^&]*&gt;', '', predText)
     
     # 3. 清理多余的换行和空格
-    text = re.sub(r'\n+', ' ', text)
-    text = re.sub(r'\s+', ' ', text)
+    predText = re.sub(r'\n+', ' ', predText)
+    predText = re.sub(r'\s+', ' ', predText)
     
     # 4. 如果文本仍然异常长，尝试找到合理的截断点
-    if len(text) > 300:
-        for i, char in enumerate(text):
+    if len(predText) > 300:
+        for i, char in enumerate(predText):
             if char in '。！？.!?' and i > 50:
                 if i < 200:
-                    text = text[:i+1]
+                    predText = predText[:i+1]
                     break
         else:
-            text = text[:200]
+            predText = predText[:200]
     
-    return text.strip()
+    return predText.strip()
 
 def getSrcPredsRefs(DirName):
     with open(os.path.join(DirName, "results.json"), 'r') as f:

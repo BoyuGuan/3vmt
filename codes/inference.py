@@ -2,19 +2,16 @@ import argparse
 import tqdm
 import random
 import time
-import av
-import numpy as np
 import torch
-from transformers import AutoModel, AutoModelForImageTextToText, AutoTokenizer, AutoModelForCausalLM, MllamaForConditionalGeneration, LlavaNextVideoProcessor, LlavaNextVideoForConditionalGeneration, Qwen2VLForConditionalGeneration, Qwen2_5_VLForConditionalGeneration, AutoProcessor 
+from transformers import AutoModel, AutoTokenizer, AutoModelForCausalLM, MllamaForConditionalGeneration, LlavaNextVideoProcessor, LlavaNextVideoForConditionalGeneration, Qwen2VLForConditionalGeneration, Qwen2_5_VLForConditionalGeneration, Qwen3VLForConditionalGeneration, AutoProcessor 
 from torch.utils.data import random_split, DataLoader
 from transformers import GenerationConfig
 from tqdm import tqdm
 import os
-import sys
 from datetime import datetime
 import logging
 from utils.prompts import getSystemPrompt, getUserPrompt
-from utils.computeTransMetric import computeBLEU, computeMETEOR, computeChrF, computeCOMET, computeBLEURT
+from utils.computeTransMetric import computeTranslationMetrics
 import json
 from vmt3_dataset.vmtDataset import vmtDatasetForLLM
 from qwen_vl_utils import process_vision_info
@@ -433,12 +430,12 @@ if __name__ == "__main__":
             processor = LlavaNextVideoProcessor.from_pretrained(args.model_path)
         elif "Qwen2-VL" in args.model_name:
             model = Qwen2VLForConditionalGeneration.from_pretrained(args.model_path, torch_dtype="auto",device_map="auto")
-            processor = AutoProcessor.from_pretrained(args.model_path)
+            processor = AutoProcessor.from_pretrained(args.model_path, padding_side='left')
         elif "Qwen2.5-VL" in args.model_name:
             model = Qwen2_5_VLForConditionalGeneration.from_pretrained(args.model_path, torch_dtype="auto",device_map="auto")
             processor = AutoProcessor.from_pretrained(args.model_path, padding_side='left')
         elif  "Qwen3-VL" in args.model_name:
-            model = AutoModelForImageTextToText.from_pretrained(args.model_path, torch_dtype="auto",device_map="auto")
+            model = Qwen3VLForConditionalGeneration.from_pretrained(args.model_path, torch_dtype="auto",device_map="auto")
             processor = AutoProcessor.from_pretrained(args.model_path, padding_side='left')
 
         elif args.model_name == "MiniCPM-V-2_6":
@@ -478,15 +475,4 @@ if __name__ == "__main__":
 
     if args.trans_metric:
         # 计算翻译指标
-        logger.info(f"\033[91m Evaluation Resutlts")
-        if 'BLEU' in args.metrics:
-            logger.info(f"\033[91m BLEU: {computeBLEU(preds, refs, args.target_language == 'zh', usingSacreBLEU=False)}   ( Using Huggingface SacreBLEU )  \033[0m")
-            logger.info(f"\033[91m BLEU: {computeBLEU(preds, refs, args.target_language == 'zh', usingSacreBLEU=True)}    ( Using SacreBLEU )   \033[0m")
-        if 'METEOR' in args.metrics:
-            logger.info(f"\033[91m METEOR: {computeMETEOR(preds, refs, args.target_language == 'zh') * 100} \033[0m")
-        if 'chrF' in args.metrics:
-            logger.info(f'\033[91m chrF: {computeChrF(preds, refs)} \033[0m')
-        if 'COMET' in args.metrics:
-            logger.info(f'\033[91m COMET: {computeCOMET(src, preds, refs)["mean_score"] * 100} \033[0m')
-        if 'BLEURT' in args.metrics:
-            logger.info(f'\033[91m BLEURT: {computeBLEURT(preds, refs) * 100} \033[0m')
+        computeTranslationMetrics(logDirName, save_comet_scores=False, metrics=args.metrics)
