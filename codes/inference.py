@@ -370,8 +370,8 @@ if __name__ == "__main__":
     parser.add_argument("--generation_config_dir", type=str, default=None)
 
     parser.add_argument("--trans_metric", action="store_false", help="Whether to compute translation metrics. Default is True, if set it is False.")
-    parser.add_argument("--metrics", nargs='+', default=['BLEU', 'METEOR', 'chrF', 'COMET', 'BLEURT'],
-                    help="Specify which metrics to compute. Available options: BLEU, METEOR, chrF, COMET, BLEURT. "
+    parser.add_argument("--metrics", nargs='+', default=['BLEU', 'METEOR', 'chrF', 'COMET', 'COMETkiwi', 'BLEURT'],
+                    help="Specify which metrics to compute. Available options: BLEU, METEOR, chrF, COMET, COMETkiwi, BLEURT. "
                             "Default is to compute all metrics.")
     parser.add_argument("-pt", "--prompt_type", type=str, default=None, help="Prompt type, default is None, which means of translation prompt. And can set to `chooseImage` to choose image.")
     parser.add_argument("-s", "--special", type=str, default=None, help="Special setting")

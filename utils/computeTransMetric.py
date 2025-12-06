@@ -7,9 +7,10 @@ import jieba
 import torch
 from nltk.translate.meteor_score import meteor_score
 from bleurt_pytorch import BleurtForSequenceClassification, BleurtTokenizer
-# from comet import download_model, load_from_checkpoint
 import evaluate
 import numpy as np
+from comet import load_from_checkpoint
+
 
 def computeBLEU(preds, refs, isZh=False, usingSacreBLEU=True):
     if usingSacreBLEU:
@@ -44,33 +45,49 @@ def computeChrF(preds, refs):
     chrfMetric = evaluate.load("chrf")
     return chrfMetric.compute(predictions=preds, references=refs)['score']
 
+# def computeCOMET(src, preds, refs):
+
+#     def compute(src, preds, refs):
+#         torch.set_float32_matmul_precision("high")
+#         comet_metric = evaluate.load('comet')
+#         comet_score = comet_metric.compute(predictions=preds, references=refs, sources=src)
+#         return comet_score
+
+#     def setNetwork(proxyAddress):
+        
+#         os.environ["http_proxy"] = proxyAddress
+#         os.environ["https_proxy"] = proxyAddress
+#         os.environ["all_proxy"] = proxyAddress
+        
+#     try:
+#         return compute(src, preds, refs)
+#     except:
+#         print("change network_address")
+#         proxy_addresses = ["http://172.18.31.59:7890", "http://10.5.29.44:7897"]
+#         for address in proxy_addresses:
+#             try:
+#                 setNetwork(address)
+#                 return compute(src, preds, refs)
+#             except Exception as e:
+#                 print(f"address {address} network error")
+#                 print(f"{str(e)}")
+#         print("All network address failed.COMET is not computed.")
+
 def computeCOMET(src, preds, refs):
+    cometModle = load_from_checkpoint("./huggingface/Unbabel/wmt22-comet-da/checkpoints/model.ckpt")
+    data = [
+        {"src": src_i, "mt": preds_i, "ref": refs_i} for src_i, preds_i, refs_i in zip(src, preds, refs)
+    ]
+    model_output = cometModle.predict(data, batch_size=8, gpus=1)
+    return model_output
 
-    def compute(src, preds, refs):
-        torch.set_float32_matmul_precision("high")
-        comet_metric = evaluate.load('comet')
-        comet_score = comet_metric.compute(predictions=preds, references=refs, sources=src)
-        return comet_score
-
-    def setNetwork(proxyAddress):
-        
-        os.environ["http_proxy"] = proxyAddress
-        os.environ["https_proxy"] = proxyAddress
-        os.environ["all_proxy"] = proxyAddress
-        
-    try:
-        return compute(src, preds, refs)
-    except:
-        print("change network_address")
-        proxy_addresses = ["http://172.18.31.59:7890", "http://10.5.29.44:7897"]
-        for address in proxy_addresses:
-            try:
-                setNetwork(address)
-                return compute(src, preds, refs)
-            except Exception as e:
-                print(f"address {address} network error")
-                print(f"{str(e)}")
-        print("All network address failed.COMET is not computed.")
+def computeCOMETkiwi(src, preds):
+    cometModle = load_from_checkpoint("./huggingface/Unbabel/wmt22-cometkiwi-da/checkpoints/model.ckpt")
+    data = [
+        {"src": src_i, "mt": preds_i} for src_i, preds_i in zip(src, preds)
+    ]
+    model_output = cometModle.predict(data, batch_size=8, gpus=1)
+    return model_output
 
 def computeBLEURT(preds, refs, batchSize=512, returnAverage=True):
     BLEURTModel = BleurtForSequenceClassification.from_pretrained('./huggingface/lucadiliello/BLEURT-20')
@@ -148,7 +165,7 @@ def getSrcPredsRefs(DirName):
 
     return src, preds, refs
 
-def computeTranslationMetrics(DirName, save_comet_scores=False, metrics = ['BLEU', 'METEOR', 'chrF', 'COMET', 'BLEURT']):
+def computeTranslationMetrics(DirName, save_comet_scores=False, metrics = ['BLEU', 'METEOR', 'chrF', 'COMET', 'COMETkiwi', 'BLEURT']):
     src, preds, refs = getSrcPredsRefs(DirName)
     
     with open(os.path.join(DirName, "usingForTransMetric.json"), 'w') as f:
@@ -173,13 +190,16 @@ def computeTranslationMetrics(DirName, save_comet_scores=False, metrics = ['BLEU
         metricScores.append(chrFScore)
     if 'COMET' in metrics:
         COMETScore = computeCOMET(src, preds, refs)
-        
-        MeanCOMETScore = COMETScore["mean_score"] * 100
+        MeanCOMETScore = COMETScore["system_score"] * 100
         print( f"\033[91m COMET: {MeanCOMETScore} \033[0m" )
         metricScores.append(MeanCOMETScore)
         if save_comet_scores:
             np.save(os.path.join(DirName, "comet_scores.npy"), COMETScore["scores"])
-        
+    if 'COMETkiwi' in metrics:
+        COMETkiwiScore = computeCOMETkiwi(src, preds)
+        MeanCOMETkiwiScore = COMETkiwiScore["system_score"] * 100
+        print( f"\033[91m COMETkiwi: {MeanCOMETkiwiScore} \033[0m" )
+        metricScores.append(MeanCOMETkiwiScore)
     if 'BLEURT' in metrics:
         BLEURTScore = computeBLEURT(preds, refs) * 100
         print( f"\033[91m BLEURT: {BLEURTScore} \033[0m" )
@@ -195,8 +215,8 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser()
     parser.add_argument("-d", "--dir_path", type=str, required=True)
-    parser.add_argument("-m", "--metrics", nargs='+', default=['BLEU', 'METEOR', 'chrF', 'COMET', 'BLEURT'],
-                        help="Specify which metrics to compute. Available options: BLEU, METEOR, chrF, COMET, BLEURT. "
+    parser.add_argument("-m", "--metrics", nargs='+', default=['BLEU', 'METEOR', 'chrF', 'COMET', 'COMETkiwi', 'BLEURT'],
+                        help="Specify which metrics to compute. Available options: BLEU, METEOR, chrF, COMET, COMETkiwi, BLEURT. "
                                 "Default is to compute all metrics.")
     parser.add_argument("-sc", "--save_comet_scores", action="store_true")
     args = parser.parse_args()
