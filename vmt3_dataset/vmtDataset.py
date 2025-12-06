@@ -9,7 +9,9 @@ from typing import Dict
 import random
 from PIL import Image
 from decord import VideoReader, cpu    # pip install decord
-from utils.InternVideo import load_video,load_image
+from utils.InternVideo import load_video, load_image
+from utils.InternVL_35 import load_video_VL35, load_image_VL35
+
 
 class Dataset4SelectorTrain(Dataset):
     def __init__(self, clipInfoPath):
@@ -182,10 +184,10 @@ class vmtDatasetForLLM(Dataset):
             num_segments=128
             pixel_values, num_patches_list = load_video(videoPath, num_segments=num_segments, max_num=1, get_frame_by_duration=False)
             return {"pixel_values":pixel_values, "num_patches_list":num_patches_list}
-        elif modelName == "InternVL3-14B":
+        elif modelName == "InternVL3-14B" or "InternVL3_5" in modelName:
             # 使用与InternVideo2_5类似的处理方式，但调整参数
             num_segments=32  # InternVL3使用较少的帧数
-            pixel_values, num_patches_list = load_video(videoPath, num_segments=num_segments, max_num=1, get_frame_by_duration=False)
+            pixel_values, num_patches_list = load_video_VL35(videoPath, num_segments=num_segments, max_num=1)
             return {"pixel_values":pixel_values, "num_patches_list":num_patches_list}
         else:
             raise TypeError("Model name error!")
@@ -201,8 +203,8 @@ class vmtDatasetForLLM(Dataset):
             return Image.open(imagePath).convert('RGB')
         elif modelName == "Llama-3.2-11B-Vision-Instruct":
             return [Image.open(imagePath)]
-        elif modelName == "InternVL3-14B":
-            # InternVL3-14B 使用PIL图像，与MiniCPM类似的处理方式
+        elif modelName == "InternVL3-14B" or "InternVL3_5" in modelName:
+            # InternVL3-14B 和 InternVL3_5 使用PIL图像，与MiniCPM类似的处理方式
             if isinstance(imagePath, list):
                 return [Image.open(singlePath).convert('RGB') for singlePath in imagePath]
             return Image.open(imagePath).convert('RGB')

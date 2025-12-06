@@ -105,36 +105,52 @@ def getSrcPredsRefsMultimodalModel(dataLoader, model, processor, args, generatio
             preds += [output_text] 
             # print(preds)
             continue  
-        elif args.model_name == "InternVL3-14B":
-            if args.dataset_type == "video-text":
-                pixel_values = batch_data["videoClip"][0]["pixel_values"]
-                num_patches_list = batch_data["videoClip"][0]["num_patches_list"]
-                pixel_values = pixel_values.to(torch.bfloat16).to(model.device)
-                video_prefix = "".join([f"Frame{i+1}: <image>\n" for i in range(len(num_patches_list))])
-                question1 = getUserPrompt(args.prompt_language, args.source_language, args.target_language, batch_data["src_text"][0], args.shot_num, args.dataset_type, args.prompt_type)
-                question = video_prefix + question1
-            elif args.dataset_type == "image-text" or args.dataset_type == "images-text":
-                # 对于图像输入，需要加载pixel_values
-                from utils.InternVideo import load_image
-                if args.image_selection == "multiple" or args.image_selection == "chooseImage":
-                    # 处理多张图片
-                    all_pixel_values = []
-                    for img_path in batch_data["imagePath"][0]:
-                        pixel_values = load_image(img_path, input_size=448, max_num=12).to(torch.bfloat16).to(model.device)
-                        all_pixel_values.append(pixel_values)
-                    pixel_values = torch.cat(all_pixel_values, dim=0)
-                    image_prefix = "".join([f"<image>\n" for _ in range(len(all_pixel_values))])
-                    question1 = getUserPrompt(args.prompt_language, args.source_language, args.target_language, batch_data["src_text"][0], args.shot_num, args.dataset_type, args.prompt_type)
-                    question = image_prefix + question1
+        elif args.model_name == "InternVL3-14B" or "InternVL3_5" in args.model_name:
+            # 批处理实现
+            batch_pixel_values_list = []
+            batch_num_patches_list = []
+            questions = []
+            
+            for i in range(len(batch_data["src_text"])):
+                if args.dataset_type == "video-text":
+                    pixel_values = batch_data["videoClip"][i]["pixel_values"]
+                    num_patches_list = batch_data["videoClip"][i]["num_patches_list"]
+                    pixel_values = pixel_values.to(torch.bfloat16).to(model.device)
+                    video_prefix = "".join([f"Frame{j+1}: <image>\n" for j in range(len(num_patches_list))])
+                    question1 = getUserPrompt(args.prompt_language, args.source_language, args.target_language, batch_data["src_text"][i], args.shot_num, args.dataset_type, args.prompt_type)
+                    question = video_prefix + question1
+                    batch_pixel_values_list.append(pixel_values)
+                    batch_num_patches_list.append(pixel_values.size(0))
+                    
+                elif args.dataset_type == "image-text" or args.dataset_type == "images-text":
+                    # 对于图像输入，需要加载pixel_values
+                    from utils.InternVL_35 import load_image_VL35
+                    if args.image_selection == "multiple" or args.image_selection == "chooseImage":
+                        # 处理多张图片
+                        all_pixel_values = []
+                        for img_path in batch_data["imagePath"][i]:
+                            pixel_values = load_image_VL35(img_path, max_num=12).to(torch.bfloat16).to(model.device)
+                            all_pixel_values.append(pixel_values)
+                        pixel_values = torch.cat(all_pixel_values, dim=0)
+                        image_prefix = "".join([f"<image>\n" for _ in range(len(all_pixel_values))])
+                        question1 = getUserPrompt(args.prompt_language, args.source_language, args.target_language, batch_data["src_text"][i], args.shot_num, args.dataset_type, args.prompt_type)
+                        question = image_prefix + question1
+                    else:
+                        # 处理单张图片
+                        pixel_values = load_image_VL35(batch_data["imagePath"][i], input_size=448, max_num=12).to(torch.bfloat16).to(model.device)
+                        question1 = getUserPrompt(args.prompt_language, args.source_language, args.target_language, batch_data["src_text"][i], args.shot_num, args.dataset_type, args.prompt_type)
+                        question = "<image>\n" + question1
+                    batch_pixel_values_list.append(pixel_values)
+                    batch_num_patches_list.append(pixel_values.size(0))
+                    
                 else:
-                    # 处理单张图片
-                    pixel_values = load_image(batch_data["imagePath"][0], input_size=448, max_num=12).to(torch.bfloat16).to(model.device)
-                    question1 = getUserPrompt(args.prompt_language, args.source_language, args.target_language, batch_data["src_text"][0], args.shot_num, args.dataset_type, args.prompt_type)
-                    question = "<image>\n" + question1
-            else:
-                # 纯文本
-                question = getUserPrompt(args.prompt_language, args.source_language, args.target_language, batch_data["src_text"][0], args.shot_num, args.dataset_type, args.prompt_type)
-                pixel_values = None
+                    # 纯文本
+                    question = getUserPrompt(args.prompt_language, args.source_language, args.target_language, batch_data["src_text"][i], args.shot_num, args.dataset_type, args.prompt_type)
+                    pixel_values = None
+                    batch_pixel_values_list.append(None)
+                    batch_num_patches_list.append(0)
+                
+                questions.append(question)
             
             generation_config = dict(
                 max_new_tokens=args.max_tgt_length, 
@@ -142,12 +158,29 @@ def getSrcPredsRefsMultimodalModel(dataLoader, model, processor, args, generatio
                 temperature=0.1,
                 top_p=0.9
             )
-            if pixel_values is not None:
-                output_text = model.chat(tokenizer, pixel_values, question, generation_config, history=None, return_history=False)
+            
+            # 判断是否有视觉输入
+            has_visual_input = any(pv is not None for pv in batch_pixel_values_list)
+            
+            if has_visual_input:
+                # 合并所有的pixel_values
+                combined_pixel_values = torch.cat([pv for pv in batch_pixel_values_list if pv is not None], dim=0)
+                # 使用batch_chat进行批处理
+                output_texts = model.batch_chat(
+                    tokenizer, 
+                    combined_pixel_values, 
+                    num_patches_list=batch_num_patches_list,
+                    questions=questions,
+                    generation_config=generation_config
+                )
             else:
-                # 纯文本情况
-                output_text, _ = model.chat(tokenizer, None, question, generation_config, history=None, return_history=True)
-            preds += [output_text] 
+                # 纯文本批处理
+                output_texts = []
+                for question in questions:
+                    output_text, _ = model.chat(tokenizer, None, question, generation_config, history=None, return_history=True)
+                    output_texts.append(output_text)
+            
+            preds += output_texts
             continue
         for i in range(len(batch_data["src_text"])):
             promptItem = []
@@ -166,7 +199,6 @@ def getSrcPredsRefsMultimodalModel(dataLoader, model, processor, args, generatio
                 elif "Qwen2-VL" in args.model_name or "Qwen2.5-VL" in args.model_name or "Qwen3-VL" in args.model_name:
                     video_path = batch_data["videoClipPath"][i]
                     promptItem.append({"role": "user", "content": [{"type": "video","video": video_path, "max_pixels": 360 * 420, "fps": 1.0,}, {"type": "text", "text": userPrompt}]})
-                    generationConfig = None
                 elif args.model_name == "MiniCPM-V-2_6":
                     promptItem.append({"role": "user", "content": batch_data["videoClip"][i] + [userPrompt]})
                 else:
@@ -181,7 +213,6 @@ def getSrcPredsRefsMultimodalModel(dataLoader, model, processor, args, generatio
                         contentList = [{"type": "image", "image": image_path, "max_pixels": 360 * 420}]
                     contentList += [{"type": "text", "text": userPrompt}]
                     promptItem.append({"role": "user", "content": contentList})
-                    generationConfig = None
                 elif args.model_name == "LLaVA-NeXT-Video-7B-hf":
                     promptItem.append({"role": "user", "content": [{"type": "text", "text": userPrompt}, {"type": "image"},]})
                 elif args.model_name == "MiniCPM-V-2_6":
@@ -377,9 +408,10 @@ if __name__ == "__main__":
         args.batch_size = 1
         print("InternVideo2_5_Chat_8B model only support batch_size=1")
         
-    if args.model_name == "InternVL3-14B":
-        args.batch_size = 1
-        print("InternVL3-14B model only support batch_size=1")
+    # InternVL3_5 现在支持批处理
+    # if args.model_name == "InternVL3-14B" or "InternVL3_5" in args.model_name:
+    #     args.batch_size = 1
+    #     print(f"{args.model_name} model only support batch_size=1")
         
     # 将参数记录到日志中
     args2Log = "Script arguments: \n"
@@ -415,10 +447,10 @@ if __name__ == "__main__":
     if args.model_type == "text":
         if "Qwen2" in args.model_name or "Qwen3" in args.model_name or "Llama-3" in args.model_name:
             tokenizer = AutoTokenizer.from_pretrained(args.model_path, padding_side="left")
-            model = AutoModelForCausalLM.from_pretrained(args.model_path, torch_dtype="auto", device_map="auto")
+            model = AutoModelForCausalLM.from_pretrained(args.model_path, dtype="auto", device_map="auto")
         elif args.model_name == "internlm3-8b-instruct":
             tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True, padding_side='left')
-            model = AutoModelForCausalLM.from_pretrained(args.model_path, trust_remote_code=True, torch_dtype=torch.bfloat16).cuda()
+            model = AutoModelForCausalLM.from_pretrained(args.model_path, trust_remote_code=True, dtype=torch.bfloat16).cuda()
             model.eval()
         else:
             raise TypeError("Model name not supported!")
@@ -426,20 +458,20 @@ if __name__ == "__main__":
         # src, preds, refs = getSrcPredsRefs(testDataloader, model, tokenizer, model.generation_config)
     elif args.model_type == "multimodal":
         if args.model_name == "LLaVA-NeXT-Video-7B-hf":
-            model = LlavaNextVideoForConditionalGeneration.from_pretrained(args.model_path, torch_dtype="auto",device_map="auto")
+            model = LlavaNextVideoForConditionalGeneration.from_pretrained(args.model_path, dtype="auto",device_map="auto")
             processor = LlavaNextVideoProcessor.from_pretrained(args.model_path)
         elif "Qwen2-VL" in args.model_name:
-            model = Qwen2VLForConditionalGeneration.from_pretrained(args.model_path, torch_dtype="auto",device_map="auto")
+            model = Qwen2VLForConditionalGeneration.from_pretrained(args.model_path, dtype="auto",device_map="auto")
             processor = AutoProcessor.from_pretrained(args.model_path, padding_side='left')
         elif "Qwen2.5-VL" in args.model_name:
-            model = Qwen2_5_VLForConditionalGeneration.from_pretrained(args.model_path, torch_dtype="auto",device_map="auto")
+            model = Qwen2_5_VLForConditionalGeneration.from_pretrained(args.model_path, dtype="auto",device_map="auto")
             processor = AutoProcessor.from_pretrained(args.model_path, padding_side='left')
         elif  "Qwen3-VL" in args.model_name:
-            model = Qwen3VLForConditionalGeneration.from_pretrained(args.model_path, torch_dtype="auto",device_map="auto")
+            model = Qwen3VLForConditionalGeneration.from_pretrained(args.model_path, dtype="auto",device_map="auto")
             processor = AutoProcessor.from_pretrained(args.model_path, padding_side='left')
 
         elif args.model_name == "MiniCPM-V-2_6":
-            # 使用torch_dtype="auto"会报错
+            # 使用dtype="auto"会报错
             model = AutoModel.from_pretrained(args.model_path, trust_remote_code=True,
                 attn_implementation='sdpa', 
                 ) # sdpa or flash_attention_2, no eager
@@ -451,12 +483,12 @@ if __name__ == "__main__":
             tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True)
             model = AutoModel.from_pretrained(args.model_path,trust_remote_code=True).half().cuda().to(torch.bfloat16)
             processor = tokenizer
-        elif args.model_name == "InternVL3-14B":
+        elif args.model_name == "InternVL3-14B" or "InternVL3_5" in args.model_name:
             tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True, use_fast=False)
-            # 参考2.py中的模型加载方式
+            # 参考5.py中的模型加载方式
             model = AutoModel.from_pretrained(
                 args.model_path,
-                torch_dtype=torch.bfloat16,
+                dtype=torch.bfloat16,
                 load_in_8bit=False,
                 low_cpu_mem_usage=True,
                 use_flash_attn=True,
@@ -464,7 +496,7 @@ if __name__ == "__main__":
                 device_map="auto").eval()
             processor = tokenizer
         elif args.model_name == "Llama-3.2-11B-Vision-Instruct":
-            model = MllamaForConditionalGeneration.from_pretrained(args.model_path,torch_dtype=torch.bfloat16,device_map="auto")
+            model = MllamaForConditionalGeneration.from_pretrained(args.model_path,dtype=torch.bfloat16,device_map="auto")
             processor = AutoProcessor.from_pretrained(args.model_path, padding_side='left')
         else:
             raise TypeError("Model name not supported!")
