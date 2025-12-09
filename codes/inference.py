@@ -48,6 +48,7 @@ def getSrcPredsRefsTextModel(dataLoader, model, tokenizer, args, generationConfi
             batchInput,
             tokenize=False,
             add_generation_prompt=True,
+            enable_thinking=args.thinking,
         )
         # model_inputs_batch = tokenizer(text_batch, return_tensors="pt", max_length=args.max_src_length, truncation=True).to(model.device)
         if args.model_name == "Llama-3.1-8B-Instruct":
@@ -365,7 +366,7 @@ if __name__ == "__main__":
     # parser.add_argument('--is_test_set', action='store_true', help="Whether to evaluate test set.")
     parser.add_argument('-bs', '--batch_size', type=int, default=256, help='Batch size')
     parser.add_argument("--max_src_length", type=int, default= 1024)
-    parser.add_argument("--max_tgt_length", type=int, default= 256)
+    parser.add_argument("--max_tgt_length", type=int, default= 4096)
     # parser.add_argument("--generation_config_dir", type=str, default='./checkpoint/config/generationConfig')
     parser.add_argument("--generation_config_dir", type=str, default=None)
 
@@ -379,6 +380,7 @@ if __name__ == "__main__":
     parser.add_argument("--picID_path", type=str, default=None, help="The clip ID to picture ID file path.")
     parser.add_argument("--given_pic_ID", type=int, default= None)
     parser.add_argument("--vatex", action="store_true", help="Whether to use VATEX dataset.")
+    parser.add_argument("--thinking", action="store_true", help="Whether to use thinking, default is False.")
     
     args = parser.parse_args()
 
@@ -503,8 +505,12 @@ if __name__ == "__main__":
         src, preds, refs, clipIDs = getSrcPredsRefsMultimodalModel(testDataloader, model, processor, args, generationConfig)
     else:
         raise TypeError("Model type format error!")
+    
+    logger.info("Finished!")
     saveResult(src, preds, refs, clipIDs, logDirName)
 
     if args.trans_metric:
         # 计算翻译指标
-        computeTranslationMetrics(logDirName, save_comet_scores=False, metrics=args.metrics)
+        metricScores = computeTranslationMetrics(logDirName, save_comet_scores=False, metrics=args.metrics)
+        for metric, score in zip(args.metrics, metricScores):
+            logger.info(f"{metric}: {score}")

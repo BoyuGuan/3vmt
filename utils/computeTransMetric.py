@@ -210,6 +210,8 @@ def computeTranslationMetrics(DirName, save_comet_scores=False, metrics = ['BLEU
         f.write(f"Evaluation Resutlts \n")
         for metric, score in zip(metrics, metricScores):
             f.write(f"{metric}: {score}\n")
+    
+    return metricScores
 
 if __name__ == "__main__":
     
