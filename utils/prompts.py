@@ -1,7 +1,7 @@
 import json
 
 # 增加了多模态模型的systemprompt
-def getSystemPrompt(modelName, modelType,promptType):
+def getSystemPrompt(modelName, modelType, promptType):
     if promptType == "translation":
         if modelType == "text":
             return  {"role": "system", "content": "You are an expert translator who is fluent in English and Chinese."}
@@ -9,6 +9,17 @@ def getSystemPrompt(modelName, modelType,promptType):
             return {"role": "system","content": [{"type": "text", "text": "You are an expert translator who is fluent in English and Chinese."},],}
         else:
             raise TypeError("Model type format error!")
+    if promptType == "videoInfoExtraction":
+        videoInfoExtractionSystemPrompt = """You are a multimodal information extraction engine for video.
+Your job: extract factual, observable cues from the given video/frames. Do NOT narrate.
+Rules:
+1) Only report what is visible/legible/audible in the video.
+2) Never hallucinate names, brands, or text. OCR must match exactly what is readable.
+3) Use stable IDs across the clip: persons P1,P2,... objects O1,O2,... regions R1,R2,...
+4) Output MUST be valid JSON and NOTHING ELSE."""
+
+        return  {"role": "system","content": [{"type": "text", "text": videoInfoExtractionSystemPrompt}]}
+
     modelName2Type = {"Qwen2-7B-Instruct": "qwen2", "Qwen2.5-7B-Instruct": "qwen2", "Qwen2.5-14B-Instruct": "qwen2", "Llama-3-8B-Instruct": "llama3", \
         "LLaVA-NeXT-Video-7B-hf":"llava", "Qwen2-VL-7B-Instruct":"qwen2-vl","MiniCPM-V-2_6":"minicpm","Qwen2.5-VL-7B-Instruct":"qwen2.5-vl","Qwen2.5-VL-32B-Instruct":"qwen2.5-vl",\
             "Qwen2.5-VL-3B-Instruct":"qwen2.5-vl", "internlm3-8b-instruct":"internlm3", "Qwen2.5-3B-Instruct": "qwen2", "Qwen3-4B": "qwen2", "Qwen3-8B": "qwen2", "Qwen3-30B-A3B":"qwen2",\
@@ -69,6 +80,69 @@ def getUserPrompt(promptLanguage, srcLanguage, tgtLanguage, srcSent, shotNum=0, 
             userPrompts["en"] = f"You are provided with a video context. Your task is to translate the given input sentence from {languageID2text['zh'][srcLanguage]} into {languageID2text['zh'][tgtLanguage]}, strictly based on the video's content.\n"
             userPrompts["en"] += f"Requirements:\nONLY output the translated sentence.\nEnsure the translation is consistent with the video's context and meaning.\n\n" 
             userPrompts["en"] += f"Input sentence:\n{srcSent}\nTranslated sentence:\n"
+        elif prompt_type == "videoInfoExtraction":
+            userPrompts["en"] = """Given the input video, extract the following 6 cue types:
+(1) Who-is-who: person/entity identity registry with stable IDs
+(2) Object category + object attributes
+(3) Action category + action–object binding
+(4) OCR on-screen text
+(5) Spatial relations (in/on/under + direction)
+(6) Pointing/gaze target grounding (this/that target)
+
+Return JSON with this schema:
+
+{
+  "people": [
+    {
+      "person_id":"P1",
+      "role_guess":{"role":"<e.g., cashier/teacher/driver/unknown>"},
+    }
+  ],
+
+  "objects": [
+    {"object_id":"O1","category":"<e.g., cup/knife/phone/unknown>","attributes":{"color":"...","state":"..."}}
+  ],
+
+  "actions": [
+    {
+      "action_id":"A1",
+      "predicate":"<verb label, e.g., pour/cut/open/hand_over>",
+      "agent_id":"P1|O1|unknown",
+      "patient_id":"O2|P2|unknown",
+      "instrument_id":"O3|unknown"
+    }
+  ],
+
+  "ocr": [
+    {
+      "text":"<exact string>"
+    }
+  ],
+
+  "spatial_relations": [
+    {
+      "subject_id":"O1|P1",
+      "relation":"in|on|under|left_of|right_of|in_front_of|behind|near|towards|away_from|upward|downward",
+      "object_id":"O2|P2|R1",
+    }
+  ],
+
+  "pointing_gaze": [
+    {
+      "source_id":"P1",
+      "type":"pointing|gaze|head_turn",
+      "target_id":"O2|P2|R1|unknown",
+      "target_description":"<if target_id unknown, describe the region/object>",
+    }
+  ]
+}
+
+Additional constraints:
+- Prefer fewer, high-precision items over many low-confidence items.
+- Use "unknown" rather than guessing.
+- If no cue of a type exists, return an empty list for that field.
+"""
+
     elif dataset_type == 'image-text':
         if shotNum != 0:
             raise TypeError("Only zero shot is supported now in video-text")
