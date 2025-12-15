@@ -69,6 +69,10 @@ def getUserPrompt(promptLanguage, srcLanguage, tgtLanguage, srcSent, shotNum=0, 
             userPrompts["en"] = f"Please translate the following sentences into {languageID2text['en'][tgtLanguage]}. The input sentences are wrapped by <sentence> and </sentence>:\n"
             userPrompts["en"] += f"\n<sentence>\n{srcSent}\n</sentence>\n"
             userPrompts["en"] += "\nThe translated result should be wrapped by <translated> and </translated>."
+        elif prompt_type == "given":
+            userPrompts["en"] = f"Please translate the following input sentence from {languageID2text['en'][srcLanguage]} to {languageID2text['en'][tgtLanguage]}. Use the provided video cue ONLY as auxiliary context when it helps disambiguate meaning.\n ONLY output the translated sentence.\n"
+            
+
     elif dataset_type == "video-text":
         if shotNum != 0:
             raise TypeError("Only zero shot is supported now in video-text")
