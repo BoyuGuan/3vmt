@@ -91,6 +91,7 @@ if __name__ == "__main__":
 
     # 检查输出文件是否已存在
     output_file = f"./data/work3/sftData/sftData_{args.number}.json"
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
     
     if os.path.exists(output_file):
         logger.info("输出文件已存在，跳过数据生成")
