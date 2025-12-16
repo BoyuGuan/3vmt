@@ -33,8 +33,8 @@ from transformers import (
     Qwen3VLForConditionalGeneration,
     Qwen3VLMoeForConditionalGeneration
 )
-from qwenvl.data.data_processor import make_supervised_data_module
-from qwenvl.train.argument import (
+from SFTData.data_processor import make_supervised_data_module
+from train.argument import (
     ModelArguments,
     DataArguments,
     TrainingArguments,

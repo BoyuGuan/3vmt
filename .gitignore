@@ -1,9 +1,10 @@
 /temp
-/huggingface
-/data
 *__pycache__*
 /eval
 /log
 /checkpoint
 /wandb
 /verl
+# /huggingface
+# /data
+# /qwen3-vl-f
