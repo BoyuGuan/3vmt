@@ -3,9 +3,10 @@
 /eval
 /log
 /checkpoint
-/wandb
+*wandb*
 /verl
 /qwen3-vl-finetune/log
+
 # /huggingface
 # /data
 # /qwen3-vl-f

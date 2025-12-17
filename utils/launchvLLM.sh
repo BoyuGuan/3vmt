@@ -3,8 +3,8 @@
 # 启动Qwen3-30B-A3B
 # ./utils/lanuchvLLM.sh
 
-# 启动Qwen2.5-VL-32B-Instruct
-# ./utils/lanuchvLLM.sh -m /home/byguan/huggingface/Qwen/Qwen2.5-VL-32B-Instruct -l 16384
+# 启动Qwen3-VL-32B-Instruct
+# ./utils/lanuchvLLM.sh -m /home/byguan/huggingface/Qwen/Qwen3-VL-32B-Instruct -l 16384
 
 # 设置默认值
 DEFAULT_MODEL_PATH="/home/byguan/huggingface/Qwen/Qwen3-32B"
@@ -113,26 +113,19 @@ if [[ ! -d "$MODEL_PATH" ]]; then
     exit 1
 fi
 
-# 检查模型名称中是否包含Qwen3
-REASONING_PARSER_ARG=""
-if [[ "$MODEL_PATH" == *"Qwen3"* ]]; then
-    REASONING_PARSER_ARG="--reasoning-parser deepseek_r1"
-    echo "检测到Qwen3模型，将使用deepseek_r1推理解析器"
-fi
-
 # 启动服务
 echo "正在启动vLLM服务..."
 CUDA_VISIBLE_DEVICES=$CUDA_DEVICES \
 vllm serve "$MODEL_PATH" \
-  --dtype bfloat16 \
-  --max-model-len $MAX_MODEL_LEN \
-  --host 127.0.0.1 \
-  --port $PORT \
-  --tensor-parallel-size $TENSOR_PARALLEL_SIZE \
-  --max-num-seqs $MAX_NUM_SEQS \
-  --gpu-memory-utilization $GPU_MEMORY_UTILIZATION \
-  --enable-prefix-caching \
-  $REASONING_PARSER_ARG
+    --dtype bfloat16 \
+    --max-model-len $MAX_MODEL_LEN \
+    --host 127.0.0.1 \
+    --port $PORT \
+    --tensor-parallel-size $TENSOR_PARALLEL_SIZE \
+    --max-num-seqs $MAX_NUM_SEQS \
+    --gpu-memory-utilization $GPU_MEMORY_UTILIZATION \
+    --enable-prefix-caching \
+    --allowed-local-media-path /home
 # 记录PID
 # echo $! > /tmp/vllm.pid
 

@@ -3,7 +3,7 @@ import re
 # Define placeholders for dataset paths
 
 VMTSFT = {
-    "annotation_path": "./data/sftdata.json",
+    "annotation_path": "./data/work3/sftData/sftData_50000.json",
     "data_path": "",
 }
 
