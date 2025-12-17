@@ -3,6 +3,72 @@
 
 
 
+# 数据预处理
+
+## 步骤 1: 提取多模态信息
+```bash
+python3 ./codes/vllmServerInference.py \
+    --filePath ./data/TriFine/Train_clips.json \
+    --promptType videoInfoExtraction \
+    --model_type multimodal \
+    --dataset_type video-text \
+    --ip localhost --port 8001
+```
+
+
+## 步骤 2: 处理多模态信息
+
+和SFT Data保持一致
+```bash
+    python3 ./utils/MMDataAlignWithSFTData.py
+```
+
+验证生成的json模板正确性
+```bash
+python3 ./preprocessData/extractMM.py \
+    --MMInfoFilePath ./data/work3/MMinfoAndTrans/results_filtered_by_sft_merged.json \
+    --originDataFilePath ./data/TriFine/Train_clips.json \
+    --outputFilePath ./data/work3/MMInfo.json
+```
+
+## 步骤 3: 生成不同的多模态+文本prompt
+```bash
+python3 ./preprocessData/makeMMPrompt.py \
+    --inputFilePath ./data/work3/MMInfo.json \
+    --outputFilePath ./data/work3/data_with_prompts.json \
+    --cueTypes all
+```
+
+## 步骤 4: 运行翻译实验（不同 cue 类型），构造数据
+```bash
+# 使用 baseline（无多模态信息）
+python3 ./codes/vllmServerInference.py \
+    --filePath ./data/work3/data_with_prompts.json \
+    --promptType mmPromptTranslation \
+    --mmCueType baseline \
+    --model_type text \
+    --dataset_type text \
+    --ip localhost --port 8001
+
+# 使用 all_cues（所有多模态信息）
+python3 ./codes/vllmServerInference.py \
+    --filePath ./data/work3/data_with_prompts.json \
+    --promptType mmPromptTranslation \
+    --mmCueType all_cues \
+    --model_type text \
+    --dataset_type text \
+    --ip localhost --port 8001
+
+# 单独测试 ocr
+python3 ./codes/vllmServerInference.py \
+    --filePath ./data/work3/data_with_prompts.json \
+    --promptType mmPromptTranslation \
+    --mmCueType ocr \
+    --model_type text \
+    --dataset_type text \
+    --ip localhost --port 8001
+```
+
 
 
 # SFT

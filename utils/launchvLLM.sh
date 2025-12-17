@@ -7,8 +7,8 @@
 # ./utils/lanuchvLLM.sh -m /home/byguan/huggingface/Qwen/Qwen3-VL-32B-Instruct -l 16384
 
 # 设置默认值
-DEFAULT_MODEL_PATH="/home/byguan/huggingface/Qwen/Qwen3-32B"
-DEFAULT_CUDA_DEVICES="2,3"
+DEFAULT_MODEL_PATH="/home/byguan/huggingface/Qwen/Qwen3-30B-A3B-Instruct-2507"
+DEFAULT_CUDA_DEVICES="0,1"
 DEFAULT_PORT="8000"
 DEFAULT_MAX_MODEL_LEN="8192"
 DEFAULT_MAX_NUM_SEQS="16"

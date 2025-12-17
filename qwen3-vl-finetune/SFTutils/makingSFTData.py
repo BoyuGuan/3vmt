@@ -15,9 +15,8 @@ logger.setLevel(logging.INFO)
 def filterClips(clips, scores, alpha, number, srcLanguage):
     """过滤clips，选取分数高于阈值的前number条数据"""
     
-    # 按分数排序，从高到低
     clips_with_scores = list(zip(clips, scores))
-    clips_with_scores.sort(key=lambda x: x[1], reverse=True)
+    # clips_with_scores.sort(key=lambda x: x[1], reverse=True) # 按分数排序，从高到低
     
     # 过滤出分数高于阈值的clips
     high_score_clips = [clip for clip, score in clips_with_scores if score > alpha]
@@ -93,52 +92,49 @@ if __name__ == "__main__":
     output_file = f"./data/work3/sftData/sftData_{args.number}.json"
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
     
-    if os.path.exists(output_file):
-        logger.info("输出文件已存在，跳过数据生成")
-    else:
-        # 加载原始数据和分数
-        logger.info("加载原始数据和COMET分数...")
-        enScores = np.load("./data/work3/dataClean/train_en_comet_scores.npy").tolist()
-        zhScores = np.load("./data/work3/dataClean/train_zh_comet_scores.npy").tolist()
-        enTrainClips = json.load(open("./data/TriFine/Train_clips_en.json", "r"))
-        zhTrainClips = json.load(open("./data/TriFine/Train_clips_zh.json", "r"))
-        
-        # 过滤clips
-        logger.info("过滤clips...")
-        enClipsFiltered = filterClips(
-            enTrainClips, enScores, args.alpha, args.number, "en"
-        )
-        zhClipsFiltered = filterClips(
-            zhTrainClips, zhScores, args.alpha, args.number, "zh"
-        )
-        
-        # 确保两种语言的数据量相同
-        min_clips = min(len(enClipsFiltered), len(zhClipsFiltered))
-        enClipsFiltered = enClipsFiltered[:min_clips]
-        zhClipsFiltered = zhClipsFiltered[:min_clips]
-        
-        logger.info(f"最终使用的数据量: 英文{len(enClipsFiltered)}条，中文{len(zhClipsFiltered)}条")
-        
-        # 生成英文到中文的数据
-        logger.info("生成英文到中文的SFT数据...")
-        en_sftData = makeSFTData(enClipsFiltered, "en", "zh")
-        
-        # 生成中文到英文的数据
-        logger.info("生成中文到英文的SFT数据...")
-        zh_sftData = makeSFTData(zhClipsFiltered, "zh", "en")
-        
-        # 合并数据并打乱
-        logger.info("合并数据并打乱...")
-        all_sftData = en_sftData + zh_sftData
-        
-        random.seed(42)
-        random.shuffle(all_sftData)
-        
-        # 保存数据
-        logger.info("保存数据...")
-        json.dump(all_sftData, open(output_file, "w"),
-                  ensure_ascii=False, indent=4)
-        
-        logger.info(f"数据生成完成！")
-        logger.info(f"SFT数据: {len(all_sftData)}条")
-        logger.info(f"保存路径: {output_file}")
+    # 加载原始数据和分数
+    logger.info("加载原始数据和COMET分数...")
+    enScores = np.load("./data/work3/dataClean/train_en_comet_scores.npy").tolist()
+    zhScores = np.load("./data/work3/dataClean/train_zh_comet_scores.npy").tolist()
+    enTrainClips = json.load(open("./data/TriFine/Train_clips_en.json", "r"))
+    zhTrainClips = json.load(open("./data/TriFine/Train_clips_zh.json", "r"))
+    
+    # 过滤clips
+    logger.info("过滤clips...")
+    enClipsFiltered = filterClips(
+        enTrainClips, enScores, args.alpha, args.number, "en"
+    )
+    zhClipsFiltered = filterClips(
+        zhTrainClips, zhScores, args.alpha, args.number, "zh"
+    )
+    
+    # 确保两种语言的数据量相同
+    min_clips = min(len(enClipsFiltered), len(zhClipsFiltered))
+    enClipsFiltered = enClipsFiltered[:min_clips]
+    zhClipsFiltered = zhClipsFiltered[:min_clips]
+    
+    logger.info(f"最终使用的数据量: 英文{len(enClipsFiltered)}条，中文{len(zhClipsFiltered)}条")
+    
+    # 生成英文到中文的数据
+    logger.info("生成英文到中文的SFT数据...")
+    en_sftData = makeSFTData(enClipsFiltered, "en", "zh")
+    
+    # 生成中文到英文的数据
+    logger.info("生成中文到英文的SFT数据...")
+    zh_sftData = makeSFTData(zhClipsFiltered, "zh", "en")
+    
+    # 合并数据并打乱
+    logger.info("合并数据并打乱...")
+    all_sftData = en_sftData + zh_sftData
+    
+    random.seed(42)
+    random.shuffle(all_sftData)
+    
+    # 保存数据
+    logger.info("保存数据...")
+    json.dump(all_sftData, open(output_file, "w"),
+                ensure_ascii=False, indent=4)
+    
+    logger.info(f"数据生成完成！")
+    logger.info(f"SFT数据: {len(all_sftData)}条")
+    logger.info(f"保存路径: {output_file}")
