@@ -4,30 +4,30 @@
 功能：
 1. 读取 extractMM.py 的输出文件（包含 MMInfo 字段）
 2. 根据每条数据的 language 字段自动判断翻译方向（en->zh 或 zh->en）
-3. 为每种 cue 类型生成对应的 prompt
-4. 将所有 prompt 存储到原始数据中，输出为单个 JSON 文件
+3. 建立 ID 到自然语言（角色、物品类别+属性）的映射
+4. 生成去代码化（De-identified）、更自然的 Prompt
+5. 针对空信息的模态（如 pointing_gaze: []），生成空字符串 prompt
+6. 将所有 prompt 存储到原始数据中，输出为单个 JSON 文件
 """
 
 from __future__ import annotations
 
 from typing import Any, Dict, List
-
-
-# -----------------------------
-# System prompt (English only)
-# -----------------------------
-
-SYSTEM_PROMPT = (
-    "You are a professional translator.\n"
-    "Translate the source sentence into the target language.\n"
-    "Use the provided video cue ONLY as auxiliary context when it helps disambiguate meaning.\n"
-    "Do NOT invent any details beyond the cue.\n"
-    "Output ONLY the final translation, with no explanation."
-)
+import argparse
+import json
+import os
+import logging
 
 # All supported cue types
 ALL_CUE_TYPES = ["baseline", "people", "objects", "actions", "ocr", "spatial_relations", "pointing_gaze", "all_cues"]
 
+PROMPT_PREAMBLE = (
+    "You are a professional translator.\n"
+    "Translate the source sentence into the target language.\n"
+    "Use the provided video cue ONLY as auxiliary context when it helps disambiguate meaning.\n"
+    "Do NOT invent any details beyond the cue.\n"
+    "Output ONLY the final translation, with no explanation.\n"
+)
 
 def parse_language_field(language_str: str) -> tuple:
     """
@@ -54,6 +54,7 @@ def build_all_cue_type_prompts(
 ) -> Dict[str, str]:
     """
     为每种 cue 类型生成一个合并后的 prompt 文本。
+    此处进行了去代码化处理，将 P1, O1 等代号转换为自然语言描述。
     
     返回: Dict[cue_type, prompt_text]
     """
@@ -64,59 +65,106 @@ def build_all_cue_type_prompts(
     spatial = extraction.get("spatial_relations", []) or []
     gaze = extraction.get("pointing_gaze", []) or []
     
-    def _fmt_kv(attrs: Dict[str, Any]) -> str:
-        if not isinstance(attrs, dict) or not attrs:
-            return ""
-        chunks = []
-        for k, v in attrs.items():
-            if v is None or (isinstance(v, str) and not v.strip()):
-                continue
-            chunks.append(f"{k}={v}")
-        return ", ".join(chunks)
-    
-    # Verbalizers for each cue type
+    # ---------------------------------------------------------
+    # Step 1: 建立 ID 到自然语言描述的映射 (ID Mapping)
+    # ---------------------------------------------------------
+    id_map = {}
+
+    # 1.1 映射 People (P1 -> "the cook")
+    for p in people:
+        if not isinstance(p, dict): continue
+        pid = p.get("person_id", "unknown")
+        role = (p.get("role_guess") or {}).get("role", "person")
+        # 如果 role 是 unknown，就叫 "the person"
+        desc = role if role != "unknown" else "the person"
+        id_map[pid] = desc
+
+    # 1.2 映射 Objects (O1 -> "green vegetable")
+    for o in objects:
+        if not isinstance(o, dict): continue
+        oid = o.get("object_id", "unknown")
+        cat = o.get("category", "object")
+        attrs = o.get("attributes", {})
+        
+        # 构造自然的物品描述：优先使用 label，其次 color，最后 category
+        # 格式示例: "black soy sauce bottle" 或 "green vegetable"
+        label = attrs.get("label")
+        color = attrs.get("color")
+        
+        desc_parts = []
+        if color and color != "unknown":
+            desc_parts.append(str(color))
+        
+        # 如果 label 存在且不是 unknown，通常是最关键的信息
+        if label and label != "unknown":
+            main_desc = f"{cat} ({label})"
+        else:
+            main_desc = cat
+            
+        desc_parts.append(main_desc)
+        
+        full_desc = " ".join(desc_parts)
+        id_map[oid] = full_desc
+
+    # 辅助函数：根据 ID 获取描述，如果找不到则返回 ID 原文
+    def get_desc(ref_id):
+        if ref_id == "unknown" or not ref_id:
+            return "unknown"
+        # 尝试直接匹配
+        if ref_id in id_map:
+            return id_map[ref_id]
+        # 有些数据可能引用了 Stove 等不在 object 列表里的环境物体，直接把下划线换空格
+        return ref_id.replace("_", " ")
+
+    # ---------------------------------------------------------
+    # Step 2: 定义各种 Verbalizer (自然语言生成器)
+    # ---------------------------------------------------------
+
     def verb_people(items: List[Dict]) -> str:
         lines = []
         for it in items:
-            if not isinstance(it, dict):
-                continue
-            pid = it.get("person_id", "unknown")
-            role = (it.get("role_guess") or {}).get("role", "unknown")
-            lines.append(f"- {pid}: role guess = {role}")
+            if not isinstance(it, dict): continue
+            pid = it.get("person_id")
+            name = id_map.get(pid, "Unknown person")
+            lines.append(f"- {name}")
         return "\n".join(lines) if lines else ""
     
     def verb_objects(items: List[Dict]) -> str:
         lines = []
         for it in items:
-            if not isinstance(it, dict):
-                continue
-            oid = it.get("object_id", "unknown")
-            cat = it.get("category", "unknown")
-            attrs = _fmt_kv(it.get("attributes", {}))
-            line = f"- {oid}: {cat}"
-            if attrs:
-                line += f" [{attrs}]"
+            if not isinstance(it, dict): continue
+            oid = it.get("object_id")
+            name = id_map.get(oid, "Unknown object")
+            attrs = it.get("attributes", {})
+            extras = []
+            if attrs.get("state") and attrs["state"] != "unknown":
+                extras.append(f"state: {attrs['state']}")
+            line = f"- {name}"
+            if extras:
+                line += f" [{', '.join(extras)}]"
             lines.append(line)
         return "\n".join(lines) if lines else ""
     
     def verb_actions(items: List[Dict]) -> str:
         lines = []
         for it in items:
-            if not isinstance(it, dict):
-                continue
-            aid = it.get("action_id", "unknown")
-            pred = it.get("predicate", "unknown")
-            agent = it.get("agent_id", "unknown")
-            patient = it.get("patient_id", "unknown")
-            inst = it.get("instrument_id", "unknown")
-            lines.append(f"- {aid}: {pred} (agent={agent}, patient={patient}, instrument={inst})")
+            if not isinstance(it, dict): continue
+            pred = it.get("predicate", "action").replace("_", " ")
+            agent = get_desc(it.get("agent_id"))
+            patient = get_desc(it.get("patient_id"))
+            inst = get_desc(it.get("instrument_id"))
+            sent = f"- {agent} {pred}"
+            if patient and patient != "unknown":
+                sent += f" {patient}"
+            if inst and inst != "unknown":
+                sent += f" using {inst}"
+            lines.append(sent)
         return "\n".join(lines) if lines else ""
     
     def verb_ocr(items: List[Dict]) -> str:
         lines = []
         for it in items:
-            if not isinstance(it, dict):
-                continue
+            if not isinstance(it, dict): continue
             text = it.get("text", "")
             if text:
                 lines.append(f"- \"{text}\"")
@@ -125,59 +173,68 @@ def build_all_cue_type_prompts(
     def verb_spatial(items: List[Dict]) -> str:
         lines = []
         for it in items:
-            if not isinstance(it, dict):
-                continue
-            subj = it.get("subject_id", "unknown")
-            rel = it.get("relation", "unknown")
-            obj = it.get("object_id", "unknown")
+            if not isinstance(it, dict): continue
+            subj = get_desc(it.get("subject_id"))
+            rel = it.get("relation", "near").replace("_", " ") 
+            obj = get_desc(it.get("object_id"))
             lines.append(f"- {subj} is {rel} {obj}")
         return "\n".join(lines) if lines else ""
     
     def verb_gaze(items: List[Dict]) -> str:
         lines = []
         for it in items:
-            if not isinstance(it, dict):
-                continue
-            src = it.get("source_id", "unknown")
-            typ = it.get("type", "unknown")
-            tgt = it.get("target_id", "unknown")
-            desc = it.get("target_description", "")
-            tgt_str = f"{tgt} ({desc})" if desc and tgt == "unknown" else tgt
-            lines.append(f"- {src} {typ} -> {tgt_str}")
+            if not isinstance(it, dict): continue
+            src = get_desc(it.get("source_id"))
+            typ = it.get("type", "gaze")
+            verb = "looks at" if typ == "gaze" else "points to"
+            tgt_id = it.get("target_id")
+            tgt_desc = it.get("target_description")
+            if tgt_id and tgt_id in id_map:
+                target = id_map[tgt_id]
+            elif tgt_desc:
+                target = tgt_desc
+            else:
+                target = tgt_id if tgt_id else "unknown"
+            lines.append(f"- {src} {verb} {target}")
         return "\n".join(lines) if lines else ""
     
-    # Build cue texts for each type
+    # ---------------------------------------------------------
+    # Step 3: 生成 Prompt 文本
+    # ---------------------------------------------------------
     cue_texts = {}
     
-    # Baseline (no cue)
+    # Baseline 始终有值
     cue_texts["baseline"] = "No video cue is provided. Translate using text only."
     
-    # Individual cue types
-    cue_texts["people"] = f"Who-is-who (people in video):\n{verb_people(people)}" if people else ""
+    # 其他类别，如果没有内容则为空字符串
+    cue_texts["people"] = f"People in video:\n{verb_people(people)}" if people else ""
     cue_texts["objects"] = f"Objects visible in video:\n{verb_objects(objects)}" if objects else ""
-    cue_texts["actions"] = f"Actions observed in video:\n{verb_actions(actions)}" if actions else ""
+    cue_texts["actions"] = f"Actions observed:\n{verb_actions(actions)}" if actions else ""
     cue_texts["ocr"] = f"On-screen text (OCR):\n{verb_ocr(ocr)}" if ocr else ""
     cue_texts["spatial_relations"] = f"Spatial relations:\n{verb_spatial(spatial)}" if spatial else ""
-    cue_texts["pointing_gaze"] = f"Pointing/Gaze directions:\n{verb_gaze(gaze)}" if gaze else ""
+    cue_texts["pointing_gaze"] = f"Attention (Gaze/Pointing):\n{verb_gaze(gaze)}" if gaze else ""
     
-    # All cues combined
+    # All cues logic
     all_cue_parts = [v for k, v in cue_texts.items() if k != "baseline" and v]
+    # 注意：all_cues 这里如果为空，默认还是给了一句 "No video cues available." 
+    # 如果你也希望 all_cues 在全空时返回空字符串，可以将 else 后面的内容改为 ""
     cue_texts["all_cues"] = "Video cues:\n" + "\n\n".join(all_cue_parts) if all_cue_parts else "No video cues available."
     
     # Compose full prompts
     prompts = {}
     for cue_type, cue_text in cue_texts.items():
-        if not cue_text:
-            # Empty cue, use baseline
-            cue_text = cue_texts["baseline"]
-        
-        user_prompt = (
-            f"Task: Translate from {src_lang_name} to {tgt_lang_name}.\n\n"
-            f"Source sentence:\n{source_sentence}\n\n"
-            f"Video cue (use only if helpful):\n{cue_text}\n"
-        )
-        
-        prompts[cue_type] = user_prompt
+        # baseline 必须生成；其他 cue 若为空字符串则直接返回空 prompt
+        if cue_type == "baseline" or cue_text:
+            user_prompt = (
+                f"{PROMPT_PREAMBLE}\n"
+                f"Task: Translate from {src_lang_name} to {tgt_lang_name}.\n"
+                f"Source sentence:\n{source_sentence}\n"
+                f"Video cue:\n{cue_text}\n"
+            )
+            prompts[cue_type] = user_prompt
+        else:
+            prompts[cue_type] = ""
+
     
     return prompts
 
@@ -186,12 +243,6 @@ def build_all_cue_type_prompts(
 # Main program for batch processing
 # -----------------------------
 if __name__ == "__main__":
-    import argparse
-    import json
-    import os
-    import logging
-    from collections import defaultdict
-    
     logger = logging.getLogger('makeMMPrompt')
     formatter = logging.Formatter('%(asctime)s : %(name)s - %(levelname)s - %(message)s')
     logger.setLevel(logging.INFO)
@@ -202,7 +253,7 @@ if __name__ == "__main__":
     parser.add_argument("--outputFilePath", type=str, default="./data/work3/MMPrompts/data_with_prompts.json",
                         help="输出文件路径")
     parser.add_argument("--cueTypes", type=str, default="all",
-                        help="要生成的 cue 类型，逗号分隔（baseline,people,objects,actions,ocr,spatial_relations,pointing_gaze,all_cues），或 'all' 表示全部")
+                        help="要生成的 cue 类型")
     parser.add_argument("--logDir", type=str, default="./log",
                         help="日志目录")
     parser.add_argument("--onlyValidMMInfo", action="store_true",
@@ -212,175 +263,77 @@ if __name__ == "__main__":
     # Setup logging
     os.makedirs(args.logDir, exist_ok=True)
     fileHandler = logging.FileHandler(f'{args.logDir}/makeMMPrompt.log')
-    fileHandler.setLevel(logging.INFO)
     fileHandler.setFormatter(formatter)
     commandHandler = logging.StreamHandler()
-    commandHandler.setLevel(logging.INFO)
     commandHandler.setFormatter(formatter)
     logger.addHandler(fileHandler)
     logger.addHandler(commandHandler)
     
-    # Determine cue types to generate
+    # Determine cue types
     if args.cueTypes.lower() == "all":
         selected_cue_types = ALL_CUE_TYPES
     else:
         selected_cue_types = [t.strip() for t in args.cueTypes.split(",")]
-        for t in selected_cue_types:
-            if t not in ALL_CUE_TYPES:
-                logger.error(f"未知的 cue 类型: {t}")
-                raise ValueError(f"未知的 cue 类型: {t}. 可选: {ALL_CUE_TYPES}")
     
-    logger.info(f"输入文件: {args.inputFilePath}")
-    logger.info(f"输出文件: {args.outputFilePath}")
-    logger.info(f"要生成的 cue 类型: {selected_cue_types}")
+    logger.info(f"输入: {args.inputFilePath}")
+    logger.info(f"输出: {args.outputFilePath}")
     
-    # Read input file
+    # Read input
     try:
         with open(args.inputFilePath, 'r', encoding='utf-8') as f:
             input_data = json.load(f)
-        logger.info(f"成功读取 {len(input_data)} 条数据")
     except Exception as e:
-        logger.error(f"读取文件失败: {e}")
+        logger.error(f"读取失败: {e}")
         raise
     
-    # Statistics
+    # Stats
     total_count = 0
     processed_count = 0
-    skipped_no_mminfo = 0
-    lang_direction_counts = defaultdict(int)  # 统计翻译方向
-    cue_type_counts = defaultdict(int)  # 每种 cue 类型有多少条数据有非空 cue
     
-    # Output data
     output_data = []
     
-    # Process each item
     for idx, item in enumerate(input_data):
         total_count += 1
         
-        # Check if we should skip invalid MMInfo
-        mm_info_valid = item.get("MMInfoValid", False)
-        if args.onlyValidMMInfo and not mm_info_valid:
-            skipped_no_mminfo += 1
+        # Check validity
+        if args.onlyValidMMInfo and not item.get("MMInfoValid", False):
             continue
         
-        # Parse language field to determine translation direction
-        language_field = item.get("language", "en: English")
-        src_lang_code, src_lang_name, tgt_lang_code, tgt_lang_name = parse_language_field(language_field)
+        # Parse Language
+        lang_field = item.get("language", "en: English")
+        src_code, src_name, tgt_code, tgt_name = parse_language_field(lang_field)
+        src_sent = item.get(f"{src_code.upper()}_sentence", "")
         
-        # Track language direction statistics
-        lang_direction = f"{src_lang_code}->{tgt_lang_code}"
-        lang_direction_counts[lang_direction] += 1
-        
-        # Get source sentence based on detected source language
-        src_sent_field = f"{src_lang_code.upper()}_sentence"
-        src_sentence = item.get(src_sent_field, "")
-        if not src_sentence:
-            logger.warning(f"第 {idx+1} 条数据没有 {src_sent_field} 字段")
+        if not src_sent:
             continue
         
-        # Get MMInfo
-        mm_info = item.get("MMInfo", {})
-        if not isinstance(mm_info, dict):
-            mm_info = {}
-        
-        # Generate prompts for each cue type
+        # Build Prompts
         prompts = build_all_cue_type_prompts(
-            extraction=mm_info,
-            source_sentence=src_sentence,
-            src_lang_name=src_lang_name,
-            tgt_lang_name=tgt_lang_name,
+            extraction=item.get("MMInfo", {}),
+            source_sentence=src_sent,
+            src_lang_name=src_name,
+            tgt_lang_name=tgt_name,
         )
         
-        # Create output item: copy original data and add prompts
-        output_item = item.copy()
+        # Save results
+        out_item = item.copy()
+        out_item["src_lang"] = src_code
+        out_item["tgt_lang"] = tgt_code
         
-        # Add translation direction info
-        output_item["src_lang"] = src_lang_code
-        output_item["tgt_lang"] = tgt_lang_code
+        for c_type in selected_cue_types:
+            # 如果在 prompts 中找不到，默认为 baseline。
+            # 但现在的逻辑下，只要 c_type 在 ALL_CUE_TYPES 中，prompts 都会有 key (可能是空字符串)
+            out_item[f"mm_prompt_{c_type}"] = prompts.get(c_type, prompts["baseline"])
         
-        # Add prompts for each selected cue type as separate fields
-        # Format: mm_prompt_<cue_type>
-        for cue_type in selected_cue_types:
-            prompt_text = prompts.get(cue_type, prompts["baseline"])
-            output_item[f"mm_prompt_{cue_type}"] = prompt_text
-            
-            # Track cue type statistics
-            has_content = False
-            if cue_type == "baseline":
-                has_content = True
-            elif cue_type == "all_cues":
-                has_content = any(mm_info.get(k) for k in ["people", "objects", "actions", "ocr", "spatial_relations", "pointing_gaze"])
-            else:
-                has_content = bool(mm_info.get(cue_type))
-            
-            if has_content:
-                cue_type_counts[cue_type] += 1
-        
-        output_data.append(output_item)
+        output_data.append(out_item)
         processed_count += 1
         
-        # Progress
         if (idx + 1) % 1000 == 0:
-            logger.info(f"已处理 {idx+1}/{len(input_data)} 条数据")
+            logger.info(f"Processing {idx+1}...")
     
-    # Create output directory
-    output_dir = os.path.dirname(args.outputFilePath)
-    if output_dir:
-        os.makedirs(output_dir, exist_ok=True)
-    
-    # Save output
-    try:
-        with open(args.outputFilePath, 'w', encoding='utf-8') as f:
-            json.dump(output_data, f, ensure_ascii=False, indent=2)
-        logger.info(f"已保存 {len(output_data)} 条数据到: {args.outputFilePath}")
-    except Exception as e:
-        logger.error(f"保存文件失败: {e}")
-        raise
-    
-    # Print statistics
-    separator = "=" * 70
-    stats_output = f"""
-{separator}
-处理完成！统计信息：
-{separator}
-
-【整体统计】
-  总数据量: {total_count}
-  已处理数据量: {processed_count}
-  跳过（MMInfo无效）: {skipped_no_mminfo}
-
-【翻译方向统计】
-"""
-    
-    for direction, count in sorted(lang_direction_counts.items()):
-        pct = count / processed_count * 100 if processed_count > 0 else 0
-        stats_output += f"  - {direction}: {count} ({pct:.2f}%)\n"
-    
-    stats_output += f"""
-【各 cue 类型有效数据量】（有非空 cue 内容的数据）
-"""
-    
-    for cue_type in selected_cue_types:
-        count = cue_type_counts[cue_type]
-        pct = count / processed_count * 100 if processed_count > 0 else 0
-        stats_output += f"  - {cue_type:20s}: {count:6d} ({pct:.2f}%)\n"
-    
-    stats_output += f"""
-【输出文件】
-  路径: {args.outputFilePath}
-  数据条数: {len(output_data)}
-  每条数据包含的 prompt 字段:
-"""
-    for cue_type in selected_cue_types:
-        stats_output += f"    - mm_prompt_{cue_type}\n"
-    
-    stats_output += f"\n{separator}\n"
-    
-    logger.info(stats_output)
-    print(stats_output)
-    
-    # Save statistics
-    stats_file = args.outputFilePath.replace('.json', '_stats.txt')
-    with open(stats_file, 'w', encoding='utf-8') as f:
-        f.write(stats_output)
-    logger.info(f"统计信息已保存到: {stats_file}")
+    # Save Output
+    os.makedirs(os.path.dirname(args.outputFilePath), exist_ok=True)
+    with open(args.outputFilePath, 'w', encoding='utf-8') as f:
+        json.dump(output_data, f, ensure_ascii=False, indent=2)
+        
+    logger.info(f"Done. Processed: {processed_count}/{total_count}")

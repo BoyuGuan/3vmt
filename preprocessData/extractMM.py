@@ -1,14 +1,14 @@
 """
 将自动提取到的多模态细粒度信息检查格式合法性，并将其改为json存储。
+仅保存 MMInfoValid 为 True 的数据。
 
 处理流程：
 1. 读取vllmServerInference.py的输出文件（包含videoInfoExtraction字段）
 2. 检查JSON格式是否正确
 3. 验证结构是否符合预期的多模态信息格式
 4. 过滤乱码和无效内容
-5. 保存处理后的数据，并统计输出相关信息
+5. 仅保存格式合法的数据，并统计过滤掉的数据信息
 """
-
 
 import argparse
 import json
@@ -41,13 +41,6 @@ def is_valid_json_string(text: str) -> bool:
 def contains_garbled_text(text: str) -> bool:
     """
     检测文本是否包含乱码
-    
-    乱码检测策略：
-    1. 检查控制字符（除了常见的换行符、制表符）
-    2. 检查私用区Unicode字符
-    3. 检查替换字符（U+FFFD）
-    4. 检查连续的不可打印字符
-    5. 检查异常的Unicode组合
     """
     if not text or not isinstance(text, str):
         return False
@@ -93,7 +86,6 @@ def contains_garbled_text(text: str) -> bool:
 def extract_json_from_text(text: str) -> Tuple[Optional[Dict[str, Any]], str]:
     """
     从文本中提取JSON对象，处理可能的markdown代码块或其他格式
-    
     返回: (提取的JSON对象, 提取状态描述)
     """
     if not text or not isinstance(text, str):
@@ -151,7 +143,6 @@ def extract_json_from_text(text: str) -> Tuple[Optional[Dict[str, Any]], str]:
 def validate_mm_info_structure(mm_info: Dict[str, Any]) -> Tuple[bool, str]:
     """
     验证多模态信息结构是否符合预期格式
-    
     返回: (是否有效, 状态描述)
     """
     if not isinstance(mm_info, dict):
@@ -178,7 +169,6 @@ def validate_mm_info_structure(mm_info: Dict[str, Any]) -> Tuple[bool, str]:
 def clean_item(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
     清理单个字典项，移除乱码
-    
     返回: 清理后的字典，如果整体无效则返回None
     """
     if not isinstance(item, dict) or not item:
@@ -232,7 +222,6 @@ def clean_item(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 def clean_mm_info(mm_info: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, int]]:
     """
     清理多模态信息，移除无效项
-    
     返回: (清理后的数据, 每个字段的有效项数统计)
     """
     cleaned = {}
@@ -266,7 +255,6 @@ def clean_mm_info(mm_info: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, in
 def process_mm_extraction(raw_text: str) -> Tuple[Optional[Dict[str, Any]], str, Dict[str, int]]:
     """
     处理多模态提取结果，返回清理后的JSON对象
-    
     返回: (清理后的数据, 状态描述, 字段计数)
     """
     # 提取JSON
@@ -288,10 +276,8 @@ def process_mm_extraction(raw_text: str) -> Tuple[Optional[Dict[str, Any]], str,
 
 def get_clip_id(item: Dict[str, Any]) -> str:
     """获取clip的唯一标识"""
-    # 优先使用 video_id + clip_id 组合
     if 'video_id' in item and 'clip_id' in item:
         return f"{item['video_id']}_{item['clip_id']}"
-    # 其次使用 clipID
     if 'clipID' in item:
         return item['clipID']
     return "unknown"
@@ -325,7 +311,7 @@ if __name__ == "__main__":
     logger.info(f"开始处理文件: {args.MMInfoFilePath}")
     logger.info(f"原始数据文件: {args.originDataFilePath}")
     
-    # 读取多模态提取结果文件
+    # 读取文件
     try:
         with open(args.MMInfoFilePath, 'r', encoding='utf-8') as f:
             mm_extraction_data = json.load(f)
@@ -334,7 +320,6 @@ if __name__ == "__main__":
         logger.error(f"读取多模态提取结果文件失败: {e}")
         raise
     
-    # 读取原始数据文件
     try:
         with open(args.originDataFilePath, 'r', encoding='utf-8') as f:
             origin_data = json.load(f)
@@ -343,12 +328,11 @@ if __name__ == "__main__":
         logger.error(f"读取原始数据文件失败: {e}")
         raise
     
-    # 构建原始数据的索引（以 video_id_clip_id 为key）
+    # 构建索引
     origin_data_dict = {}
     for item in origin_data:
         clip_id = get_clip_id(item)
         origin_data_dict[clip_id] = item
-    logger.info(f"原始数据索引构建完成，共 {len(origin_data_dict)} 条唯一clip")
     
     # 统计信息
     total_count = len(mm_extraction_data)
@@ -360,51 +344,47 @@ if __name__ == "__main__":
     validate_error_count = 0
     not_found_in_origin_count = 0
     
-    # 字段统计
     field_names = ['people', 'objects', 'actions', 'ocr', 'spatial_relations', 'pointing_gaze']
     total_field_counts = {field: 0 for field in field_names}
-    non_empty_field_counts = {field: 0 for field in field_names}  # 有非空该字段的数据数量
-    
-    # 错误原因统计
+    non_empty_field_counts = {field: 0 for field in field_names}
     error_reasons = {}
     
-    # 处理每条数据
+    # 结果容器
     output_data = []
+    
+    # 处理每条数据
     for idx, item in enumerate(mm_extraction_data):
-        # 获取clipID
         clip_id = get_clip_id(item)
         
-        # 从原始数据中获取对应条目，以原始数据为基础
+        # 基础数据准备
         if clip_id in origin_data_dict:
             output_item = origin_data_dict[clip_id].copy()
         else:
-            # 如果原始数据中没有找到，使用提取结果中的数据
             output_item = item.copy()
             not_found_in_origin_count += 1
             if args.verbose:
                 logger.warning(f"第 {idx+1} 条数据 (clipID: {clip_id}) 在原始数据中未找到")
         
-        # 获取videoInfoExtraction字段
         mm_text = item.get('videoInfoExtraction', '')
+        should_save = False # 标记是否保存当前条目
         
         if not mm_text or not isinstance(mm_text, str) or not mm_text.strip():
-            # 空数据
-            output_item['MMInfo'] = {field: [] for field in field_names}
-            output_item['MMInfoValid'] = False
-            output_item['MMInfoStatus'] = "empty_input"
+            # 空数据 -> 无效 -> 不保存
             empty_count += 1
             invalid_count += 1
             if args.verbose:
-                logger.warning(f"第 {idx+1} 条数据 (clipID: {clip_id}) 的videoInfoExtraction字段为空")
+                logger.warning(f"第 {idx+1} 条数据 (clipID: {clip_id}) 的videoInfoExtraction字段为空 -> 跳过")
         else:
             # 处理多模态信息
             cleaned_mm_info, status, field_counts = process_mm_extraction(mm_text)
             
             if cleaned_mm_info is not None:
+                # 成功提取 -> 有效 -> 准备保存
                 output_item['MMInfo'] = cleaned_mm_info
                 output_item['MMInfoValid'] = True
                 output_item['MMInfoStatus'] = status
                 valid_count += 1
+                should_save = True # 标记为保存
                 
                 # 更新字段统计
                 for field, count in field_counts.items():
@@ -412,15 +392,10 @@ if __name__ == "__main__":
                     if count > 0:
                         non_empty_field_counts[field] += 1
             else:
-                output_item['MMInfo'] = {field: [] for field in field_names}
-                output_item['MMInfoValid'] = False
-                output_item['MMInfoStatus'] = status
+                # 提取失败 -> 无效 -> 不保存
                 invalid_count += 1
                 
-                # 统计错误原因
                 error_reasons[status] = error_reasons.get(status, 0) + 1
-                
-                # 细分错误类型
                 if "api_error" in status:
                     api_error_count += 1
                 elif "extract_failed" in status or "parse_failed" in status:
@@ -429,13 +404,14 @@ if __name__ == "__main__":
                     validate_error_count += 1
                 
                 if args.verbose:
-                    logger.warning(f"第 {idx+1} 条数据 (clipID: {clip_id}) 处理失败: {status}")
+                    logger.warning(f"第 {idx+1} 条数据 (clipID: {clip_id}) 处理失败: {status} -> 跳过")
         
-        output_data.append(output_item)
+        # 关键修改：只有 flag 为 True 时才添加到输出列表
+        if should_save:
+            output_data.append(output_item)
         
-        # 进度输出
         if (idx + 1) % 1000 == 0:
-            logger.info(f"已处理 {idx+1}/{total_count} 条数据 ({(idx+1)/total_count*100:.1f}%)")
+            logger.info(f"已处理 {idx+1}/{total_count} 条数据")
     
     # 确保输出目录存在
     output_dir = os.path.dirname(args.outputFilePath)
@@ -451,31 +427,29 @@ if __name__ == "__main__":
         logger.error(f"保存文件失败: {e}")
         raise
     
-    # 计算百分比的辅助函数
     def safe_percentage(count, total):
         return f"{count/total*100:.2f}%" if total > 0 else "N/A"
     
-    # 输出统计信息
     separator = "=" * 70
     
+    # 更新统计文案
     stats_output = f"""
 {separator}
-处理完成！统计信息：
+处理完成！(已过滤无效数据)
 {separator}
 
-【整体统计】
-  总数据量: {total_count}
-  有效数据量: {valid_count} ({safe_percentage(valid_count, total_count)})
-  无效数据量: {invalid_count} ({safe_percentage(invalid_count, total_count)})
-  原始数据中未找到: {not_found_in_origin_count}
+【数据量统计】
+  原始输入总数: {total_count}
+  最终保存总数: {len(output_data)} (剔除无效数据: {invalid_count})
+  原始数据中未找到CLIP: {not_found_in_origin_count}
 
-【无效数据细分】
-  - 空数据/无videoInfoExtraction字段: {empty_count}
+【无效数据（已过滤，不保存）细分】
+  - 空数据/无字段: {empty_count}
   - API调用错误: {api_error_count}
   - JSON解析错误: {parse_error_count}
   - 结构验证错误: {validate_error_count}
 
-【字段统计（仅有效数据）】
+【字段统计（基于最终保存的 {valid_count} 条数据）】
 """
     
     for field in field_names:
@@ -484,19 +458,16 @@ if __name__ == "__main__":
         avg_items = total_items / valid_count if valid_count > 0 else 0
         stats_output += f"  - {field:20s}: 总项数={total_items:6d}, 非空数据数={non_empty_count:5d} ({safe_percentage(non_empty_count, valid_count)}), 平均项数={avg_items:.2f}\n"
     
-    # 错误原因详情
     if error_reasons:
-        stats_output += f"\n【错误原因详情】\n"
+        stats_output += f"\n【过滤原因详情】\n"
         for reason, count in sorted(error_reasons.items(), key=lambda x: -x[1]):
             stats_output += f"  - {reason}: {count}\n"
     
     stats_output += f"\n{separator}\n"
     
-    # 输出到日志和控制台
     logger.info(stats_output)
     print(stats_output)
     
-    # 保存统计信息到文件
     stats_file = args.outputFilePath.replace('.json', '_stats.txt')
     try:
         with open(stats_file, 'w', encoding='utf-8') as f:

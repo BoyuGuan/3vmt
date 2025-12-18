@@ -41,32 +41,15 @@ python3 ./preprocessData/makeMMPrompt.py \
 
 ## 步骤 4: 运行翻译实验（不同 cue 类型），构造数据
 ```bash
-# 使用 baseline（无多模态信息）
-python3 ./codes/vllmServerInference.py \
-    --filePath ./data/work3/MMinfoAndTrans/data_with_prompts.json \
-    --promptType mmPromptTranslation \
-    --mmCueType baseline \
-    --model_type text \
-    --dataset_type text \
-    --ip localhost --port 8001
-
-# 使用 all_cues（所有多模态信息）
-python3 ./codes/vllmServerInference.py \
-    --filePath ./data/work3/MMinfoAndTrans/data_with_prompts.json \
-    --promptType mmPromptTranslation \
-    --mmCueType all_cues \
-    --model_type text \
-    --dataset_type text \
-    --ip localhost --port 8001
-
-# 单独测试 ocr
-python3 ./codes/vllmServerInference.py \
-    --filePath ./data/work3/data_with_prompts.json \
-    --promptType mmPromptTranslation \
-    --mmCueType ocr \
-    --model_type text \
-    --dataset_type text \
-    --ip localhost --port 8001
+python vllm_inference.py \
+  --filePath "./data/work3/MMPrompts/data_with_prompts.json" \
+  --promptType "mmPromptTranslation" \
+  --dataset_type "text" \
+  --model_path "./huggingface/Qwen/Qwen3-30B-A3B-Instruct-2507" \
+  --mmCueTypes "all" \
+  --ip "localhost" \
+  --port 8000 \
+  --num_concurrent_requests 50
 ```
 
 
