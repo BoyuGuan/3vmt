@@ -28,14 +28,14 @@ python3 ./codes/vllmServerInference.py \
 python3 ./preprocessData/extractMM.py \
     --MMInfoFilePath ./data/work3/MMinfoAndTrans/results_filtered_by_sft_merged.json \
     --originDataFilePath ./data/TriFine/Train_clips.json \
-    --outputFilePath ./data/work3/MMInfo.json
+    --outputFilePath ./data/work3/MMinfoAndTrans/MMInfo.json
 ```
 
 ## 步骤 3: 生成不同的多模态+文本prompt
 ```bash
 python3 ./preprocessData/makeMMPrompt.py \
-    --inputFilePath ./data/work3/MMInfo.json \
-    --outputFilePath ./data/work3/data_with_prompts.json \
+    --inputFilePath ./data/work3/MMinfoAndTrans/MMInfo.json \
+    --outputFilePath ./data/work3/MMinfoAndTrans/data_with_prompts.json \
     --cueTypes all
 ```
 
@@ -43,7 +43,7 @@ python3 ./preprocessData/makeMMPrompt.py \
 ```bash
 # 使用 baseline（无多模态信息）
 python3 ./codes/vllmServerInference.py \
-    --filePath ./data/work3/data_with_prompts.json \
+    --filePath ./data/work3/MMinfoAndTrans/data_with_prompts.json \
     --promptType mmPromptTranslation \
     --mmCueType baseline \
     --model_type text \
@@ -52,7 +52,7 @@ python3 ./codes/vllmServerInference.py \
 
 # 使用 all_cues（所有多模态信息）
 python3 ./codes/vllmServerInference.py \
-    --filePath ./data/work3/data_with_prompts.json \
+    --filePath ./data/work3/MMinfoAndTrans/data_with_prompts.json \
     --promptType mmPromptTranslation \
     --mmCueType all_cues \
     --model_type text \
