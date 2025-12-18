@@ -6,6 +6,7 @@
 *wandb*
 /verl
 /qwen3-vl-finetune/log
+/qwen3-vl-finetune/output
 
 # /huggingface
 # /data

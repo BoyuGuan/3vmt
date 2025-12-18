@@ -77,7 +77,7 @@ async def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--filePath", type=str, required=True)
     parser.add_argument("--promptType", type=str, required=True, choices=["textReasoning", "videoCaption", "videoInfoExtraction", "mmPromptTranslation"])
-    parser.add_argument("--model_path", type=str, default="/home/byguan/huggingface/Qwen/Qwen3-VL-32B-Instruct")
+    parser.add_argument("--model_path", type=str, default="./huggingface/Qwen/Qwen3-VL-32B-Instruct")
     parser.add_argument("--model_name", type=str, default=None)
     parser.add_argument("--model_type", type=str, default="multimodal", choices=['text', 'multimodal'])
     parser.add_argument("--dataset_type", type=str, default="video-text", choices=['text', 'video-text', 'image-text'])
