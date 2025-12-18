@@ -57,7 +57,7 @@ async def process_text_message(args_tuple):
         chat_response = await async_process_client.chat.completions.create(
             model=model_path,
             messages=text_mess, 
-            max_tokens=8192, 
+            max_tokens=4906, 
             temperature=0.6,
         )
         return task_id, chat_response.choices[0].message.content
