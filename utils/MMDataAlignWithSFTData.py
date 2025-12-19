@@ -54,8 +54,8 @@ def main():
     
     # 两个待筛选的 Results 文件
     result_files = [
-        '/home/byguan/3vmt/data/work3/MMinfoAndTrans/eval-2025-12-14-22-04-53/results.json',
-        '/home/byguan/3vmt/data/work3/MMinfoAndTrans/eval-2025-12-14-22-05-14/results.json'
+        '/home/byguan/3vmt/data/work3/MMinfoAndTrans/MMInfoRawData/eval-2025-12-14-22-04-53/results.json',
+        '/home/byguan/3vmt/data/work3/MMinfoAndTrans/MMInfoRawData/eval-2025-12-14-22-05-14/results.json'
     ]
     
     # 输出文件路径 (保存在 MMinfoAndTrans 目录下)
