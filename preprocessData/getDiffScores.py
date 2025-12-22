@@ -81,6 +81,8 @@ def _get_src_ref(item: Dict[str, Any]) -> Tuple[str, str, str, str]:
         elif lang_field.startswith("zh"):
             src_lang = "zh"
             tgt_lang = "en"
+        else:
+            raise ValueError(f"Cannot determine source/target language for item with video_id: {item.get('video_id')}")
 
     if src_lang == "en":
         src_text = item.get("EN_sentence", "")
@@ -89,9 +91,7 @@ def _get_src_ref(item: Dict[str, Any]) -> Tuple[str, str, str, str]:
         src_text = item.get("ZH_sentence", "")
         ref_text = item.get("EN_sentence", "")
     else:
-        # Fallback if unknown
-        src_text = ""
-        ref_text = ""
+        raise ValueError(f"Cannot determine source/target language for item with video_id: {item.get('video_id')}")
 
     return src_lang, tgt_lang, _norm_text(src_text), _norm_text(ref_text)
 
@@ -170,7 +170,7 @@ def main():
         # We pass single items as lists to satisfy the list expectation, 
         # but computeBLEU wraps refs in another list internally: refs = [refs].
         # So we just pass the string `ref`.
-        score = computeBLEU([pred], ref, isZh=is_zh)
+        score = computeBLEU([pred], [ref], isZh=is_zh)
         bleu_scores.append(float(score))
 
     # --- 2.2 COMET ---
