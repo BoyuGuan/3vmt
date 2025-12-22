@@ -59,7 +59,7 @@ CUDA_VISIBLE_DEVICES=0 python3 ./preprocessData/getDiffScores.py # 计算comet�
 ## 步骤 6: 构造实验数据
 选取MM信息增益的数据和纯文本数据，构造SFT数据并准备进行RL。
 ```bash
-python3 ./preprocessData/getBetterTrainData.py  --comet_diff 7.0
+python3 ./preprocessData/getBetterTrainData.py  --comet_diff 4.0
 ```
 
 
