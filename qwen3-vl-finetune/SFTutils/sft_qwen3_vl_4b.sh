@@ -23,11 +23,12 @@ grad_accum_steps=4
 entry_file=train/train_qwen.py
 
 # Dataset configuration (replace with public dataset names)
-datasets="vmtsft%40"
+# datasets="vmtsft%40"
+datasets="dartsft"
 
 # Output configuration
-run_name="qwen3-vl-4b-sft"
-output_dir=./output
+run_name="qwen3-vl-4b-dart-sft"
+output_dir=./output/${run_name}
 
 # Training arguments
 args=(

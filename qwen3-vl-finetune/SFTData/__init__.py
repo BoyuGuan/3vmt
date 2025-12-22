@@ -7,8 +7,14 @@ VMTSFT = {
     "data_path": "",
 }
 
+DARTSFT = {
+    "annotation_path": "./data/work3/sftData/sft_MMInfo_train_data.json",
+    "data_path": "",
+}
+
 data_dict = {
     "vmtsft": VMTSFT,
+    "dartsft": DARTSFT,
 }
 
 
