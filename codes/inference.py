@@ -183,6 +183,37 @@ def getSrcPredsRefsMultimodalModel(dataLoader, model, processor, args, generatio
             
             preds += output_texts
             continue
+        elif args.model_name == "MiniCPM-V-4_5":
+            if args.dataset_type != "video-text":
+                raise TypeError("MiniCPM-V-4_5 currently only supports video-text dataset type.")
+            for i in range(len(batch_data["src_text"])):
+                video_info = batch_data["videoClip"][i]
+                frames = video_info["frames"]
+                temporal_ids = video_info["temporal_ids"]
+                if frames is None or temporal_ids is None:
+                    raise ValueError("Video frames or temporal ids are missing for MiniCPM-V-4_5.")
+                question = getUserPrompt(
+                    args.prompt_language,
+                    args.source_language,
+                    args.target_language,
+                    batch_data["src_text"][i],
+                    args.shot_num,
+                    args.dataset_type,
+                    args.prompt_type,
+                )
+                msgs = []
+                if itemSystemPrompt is not None:
+                    msgs.append(itemSystemPrompt)
+                msgs.append({"role": "user", "content": frames + [question]})
+                output_text = model.chat(
+                    msgs=msgs,
+                    tokenizer=tokenizer,
+                    use_image_id=False,
+                    max_slice_nums=1,
+                    temporal_ids=temporal_ids,
+                )
+                preds.append(output_text)
+            continue
         for i in range(len(batch_data["src_text"])):
             promptItem = []
             if itemSystemPrompt is not None:
@@ -409,6 +440,9 @@ if __name__ == "__main__":
     if args.model_name == "InternVideo2_5_Chat_8B":
         args.batch_size = 1
         print("InternVideo2_5_Chat_8B model only support batch_size=1")
+    elif args.model_name == "MiniCPM-V-4_5":
+        args.batch_size = 1
+        print("MiniCPM-V-4_5 model only supports batch_size=1 for video-text inputs.")
         
     # InternVL3_5 现在支持批处理
     # if args.model_name == "InternVL3-14B" or "InternVL3_5" in args.model_name:
@@ -480,6 +514,16 @@ if __name__ == "__main__":
             model = model.eval().cuda()
             tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True)
             # 这样写方便下面传参
+            processor = tokenizer
+        elif args.model_name == "MiniCPM-V-4_5":
+            model = AutoModel.from_pretrained(
+                args.model_path,
+                trust_remote_code=True,
+                attn_implementation='sdpa',
+                torch_dtype=torch.bfloat16,
+            )
+            model = model.eval().cuda()
+            tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True)
             processor = tokenizer
         elif args.model_name == "InternVideo2_5_Chat_8B":
             tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True)
