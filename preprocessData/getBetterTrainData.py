@@ -43,14 +43,14 @@ def generate_sft_item(item: Dict[str, Any],
                       cue_key: str = None, 
                       cue_content: str = None) -> Dict[str, Any]:
     """
-    构造符合要求的 SFT 数据格式。
-    修改：使用 Reference (Ref) 作为 Target 输出。
+    构造符合要求的 SFT 数据格式 (CoT 风格)。
+    Human: Reference video information to translate the text. Input...
+    GPT: To translate this text, video information is [req/not req]. It is [...]. So the translation is [...]
     """
     video_id = item['video_id']
     clip_id = item['clip_id']
 
     # 确定源语言和目标语言
-    # 优先使用 explicit 的字段，如果没有则根据 language 字段推断
     src_lang = item.get('src_lang', '').strip().lower()
     
     if not src_lang:
@@ -65,36 +65,34 @@ def generate_sft_item(item: Dict[str, Any],
     # 根据源语言决定 Source 和 Target(Ref)
     if src_lang == 'zh':
         src_sentence = item.get('ZH_sentence', '')
-        # 如果源是中文，Ref(Target) 应该是英文
         target_ref = item.get('EN_sentence', '')
     else:
         src_sentence = item.get('EN_sentence', '')
-        # 如果源是英文，Ref(Target) 应该是中文
         target_ref = item.get('ZH_sentence', '')
 
-    # --- 核心修改：GPT 的回答现在总是 Reference ---
-    target_output = target_ref
+    # --- 1. 构造统一的 Human 输入 ---
+    # 无论是否需要视频，Human 的提问现在是统一的
+    human_prompt = (
+        f"<video>\n"
+        f"Reference video information to translate the text.\n"
+        f"Input sentence:\n{src_sentence}"
+    )
 
+    # --- 2. 构造包含思维链（CoT）的 GPT 回答 ---
     if sft_type == "baseline":
-        # 题目要求：翻译这个样本【不需要】视频信息...
-        human_prompt = (
-            f"<video>\n"
-            f"Translate this sample **without** video information.\n"
-            f"Input sentence:\n{src_sentence}\n"
-            f"Translated sentence:\n"
+        # Case: 不需要视频信息 (Baseline 最好)
+        gpt_response = (
+            f"To translate this text, video information is **not required**.\n"
+            f"So the translation of the statement should be:\n{target_ref}"
         )
 
     else:
-        # Visual Positive Sample
+        # Case: 需要视频信息 (Visual 最好)
         cue_name = cue_key.replace("translation_", "")
-        # 题目要求：翻译这个样本【需要】视频信息...
-        human_prompt = (
-            f"<video>\n"
-            f"Translate this sample **with** video information [{cue_name}].\n"
+        gpt_response = (
+            f"To translate this text, video information is **required** [{cue_name}].\n"
             f"It is:\n{cue_content}\n"
-            # f"So the combined translation is:\n"
-            f"Input sentence:\n{src_sentence}\n"
-            f"Translated sentence:\n"
+            f"So the translation of the statement should be:\n{target_ref}"
         )
 
     # 构造 Video 路径
@@ -109,7 +107,7 @@ def generate_sft_item(item: Dict[str, Any],
             },
             {
                 "from": "gpt",
-                "value": target_output  # 这里现在是 Ref
+                "value": gpt_response
             }
         ]
     }
@@ -138,10 +136,7 @@ def main():
     count_diff_gt_1 = 0
     
     # --- 任务 2 准备: 筛选候选集 ---
-    # Group A: Visual Candidates (COMET > Baseline + comet_diff)
     group_a_candidates = [] 
-
-    # Group B: Baseline Candidates (Baseline is Max among all excluding all_cues)
     group_b_candidates = []
 
     for item in data:
@@ -155,7 +150,6 @@ def main():
         
         baseline_comet = baseline_metrics["COMET"]
         
-        # 获取所有除 baseline 和 all_cues 之外的有效 visual keys
         visual_keys = [k for k in metrics.keys() if k not in EXCLUDED_FIELDS]
         
         # 1. 筛选 Group A: COMET > Baseline + comet_diff
@@ -165,11 +159,8 @@ def main():
             if score > baseline_comet + args.comet_diff:
                 better_cues.append((k, score))
 
-        # 任务 1 统计：同一个样本只计一次
         if better_cues:
             count_diff_gt_1 += 1
-        
-        if better_cues:
             max_score = max(c[1] for c in better_cues)
             best_cues_for_item = [c for c in better_cues if c[1] == max_score]
             
@@ -180,9 +171,11 @@ def main():
                     "score": score
                 })
         
-        # 2. 筛选 Group B: Baseline is Highest
+        # 2. 筛选 Group B: Baseline is Highest (or close enough that visual doesn't help significantly)
+        # 这里逻辑保持原样：如果没有visual显著好于baseline，且baseline本身是最高的(或者没有visual keys)，则进入B
         is_baseline_highest = True
         for k in visual_keys:
+            # 原逻辑是严格大于，这里保持一致
             if metrics[k]["COMET"] > baseline_comet:
                 is_baseline_highest = False
                 break
@@ -263,7 +256,7 @@ def main():
     with open(args.output_json, "w", encoding="utf-8") as f:
         json.dump(sft_data, f, ensure_ascii=False, indent=4)
 
-    logger.info(f"SFT data (using REF as target) saved to: {args.output_json}")
+    logger.info(f"SFT data (CoT Format) saved to: {args.output_json}")
 
     source_dir = os.path.dirname(output_source_json)
     if source_dir:
