@@ -222,3 +222,5 @@ if __name__ == "__main__":
                                 "Default is to compute all metrics.")
     parser.add_argument("-sc", "--save_comet_scores", action="store_true")
     args = parser.parse_args()
+
+    computeTranslationMetrics(args.dir_path, save_comet_scores=args.save_comet_scores, metrics=args.metrics)
