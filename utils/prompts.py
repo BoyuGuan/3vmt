@@ -21,7 +21,7 @@ Rules:
         return  {"role": "system","content": [{"type": "text", "text": videoInfoExtractionSystemPrompt}]}
 
     modelName2Type = {"Qwen2-7B-Instruct": "qwen2", "Qwen2.5-7B-Instruct": "qwen2", "Qwen2.5-14B-Instruct": "qwen2", "Llama-3-8B-Instruct": "llama3", \
-        "LLaVA-NeXT-Video-7B-hf":"llava", "Qwen2-VL-7B-Instruct":"qwen2-vl","MiniCPM-V-2_6":"minicpm","Qwen2.5-VL-7B-Instruct":"qwen2.5-vl","Qwen2.5-VL-32B-Instruct":"qwen2.5-vl",\
+        "LLaVA-NeXT-Video-7B-hf":"llava", "Qwen2-VL-7B-Instruct":"qwen2-vl","MiniCPM-V-2_6":"minicpm","MiniCPM-V-4_5":"minicpm","Qwen2.5-VL-7B-Instruct":"qwen2.5-vl","Qwen2.5-VL-32B-Instruct":"qwen2.5-vl",\
             "Qwen2.5-VL-3B-Instruct":"qwen2.5-vl", "internlm3-8b-instruct":"internlm3", "Qwen2.5-3B-Instruct": "qwen2", "Qwen3-4B": "qwen2", "Qwen3-8B": "qwen2", "Qwen3-30B-A3B":"qwen2",\
         "InternVideo2_5_Chat_8B":"InternVideo2_5","Llama-3.2-11B-Vision-Instruct":"llama3.2-vision","Llama-3.1-8B-Instruct":"llama3.1", "Qwen3-32B": "qwen2", "InternVL3-14B":"internvl3", \
             "Qwen3-VL-8B-Instruct":"qwen3-vl", "Qwen3-VL-4B-Instruct":"qwen3-vl", "Qwen3-VL-8B-Thinking":"qwen3-vl", "Qwen3-VL-4B-Thinking":"qwen3-vl", "InternVL3_5-8B": "internvl3", "InternVL3_5-4B": "internvl3"}

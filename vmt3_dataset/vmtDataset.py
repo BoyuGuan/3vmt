@@ -7,6 +7,7 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import io
 from typing import Dict
 import random
+import math
 from PIL import Image
 from decord import VideoReader, cpu    # pip install decord
 from utils.InternVideo import load_video, load_image
@@ -144,6 +145,49 @@ class vmtDatasetForLLM(Dataset):
         # print('num frames:', len(frames))
         return frames
     
+    # MiniCPM-V-4_5 处理视频的函数
+    def _encode_video_45(self, video_path, choose_fps=5, force_packing=None):
+        MAX_NUM_FRAMES = 180  # frames per packed slice
+        MAX_NUM_PACKING = 3   # max number of packed slices
+        TIME_SCALE = 0.1
+
+        def uniform_sample(indices, n):
+            gap = len(indices) / n
+            idxs = [int(i * gap + gap / 2) for i in range(n)]
+            return [indices[i] for i in idxs]
+
+        def group_array(arr, size):
+            return [arr[i:i + size] for i in range(0, len(arr), size)]
+
+        vr = VideoReader(video_path, ctx=cpu(0))
+        fps = vr.get_avg_fps()
+        video_duration = len(vr) / max(fps, 1e-6)
+
+        if choose_fps * int(video_duration) <= MAX_NUM_FRAMES:
+            packing_nums = 1
+            choose_frames = round(min(choose_fps, round(fps)) * min(MAX_NUM_FRAMES, video_duration))
+        else:
+            packing_nums = math.ceil(video_duration * choose_fps / MAX_NUM_FRAMES)
+            if packing_nums <= MAX_NUM_PACKING:
+                choose_frames = round(video_duration * choose_fps)
+            else:
+                choose_frames = round(MAX_NUM_FRAMES * MAX_NUM_PACKING)
+                packing_nums = MAX_NUM_PACKING
+
+        frame_idx = [i for i in range(0, len(vr))]
+        frame_idx = np.array(uniform_sample(frame_idx, max(1, choose_frames)))
+
+        if force_packing:
+            packing_nums = min(force_packing, MAX_NUM_PACKING)
+
+        frames = vr.get_batch(frame_idx).asnumpy()
+
+        frame_ts_id = np.rint((frame_idx / max(fps, 1e-6)) / TIME_SCALE).astype(np.int32)
+
+        frames = [Image.fromarray(v.astype('uint8')).convert('RGB') for v in frames]
+        temporal_ids = group_array(frame_ts_id.tolist(), packing_nums)
+        return {"frames": frames, "temporal_ids": temporal_ids}
+    
     # https://huggingface.co/docs/transformers/main/en/model_doc/llava_next_video
     # LLaVA-NeXT-Video-7B-hf处理视频的函数
     def _read_video_pyav(self, container, indices):
@@ -180,6 +224,8 @@ class vmtDatasetForLLM(Dataset):
             return None
         elif modelName == "MiniCPM-V-2_6":
             return self._encode_video(videoPath)
+        elif modelName == "MiniCPM-V-4_5":
+            return self._encode_video_45(videoPath)
         elif modelName == "InternVideo2_5_Chat_8B":
             num_segments=128
             pixel_values, num_patches_list = load_video(videoPath, num_segments=num_segments, max_num=1, get_frame_by_duration=False)
