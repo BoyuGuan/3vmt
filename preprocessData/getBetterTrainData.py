@@ -72,10 +72,20 @@ def generate_sft_item(item: Dict[str, Any],
 
     # --- 1. 构造统一的 Human 输入 ---
     # 无论是否需要视频，Human 的提问现在是统一的
+    
+    if src_lang == 'zh':
+        source_language = "Chinese"
+        target_language = "English"
+    else:
+        source_language = "English"
+        target_language = "Chinese"
+
     human_prompt = (
         f"<video>\n"
-        f"Reference video information to translate the text.\n"
-        f"Input sentence:\n{src_sentence}"
+        f"Please translate the following input sentence from {source_language} to {target_language} according to the video. ONLY output the translated sentence.\n"
+        f"Input sentence:\n"
+        f"{src_sentence}\n"
+        f"Translated sentence:\n"
     )
 
     # --- 2. 构造包含思维链（CoT）的 GPT 回答 ---
