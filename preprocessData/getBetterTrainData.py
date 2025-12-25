@@ -85,24 +85,23 @@ def generate_sft_item(item: Dict[str, Any],
         f"Please translate the following input sentence from {source_language} to {target_language} according to the video. ONLY output the translated sentence.\n"
         f"Input sentence:\n"
         f"{src_sentence}\n"
-        f"Translated sentence:\n"
     )
 
     # --- 2. 构造包含思维链（CoT）的 GPT 回答 ---
     if sft_type == "baseline":
         # Case: 不需要视频信息 (Baseline 最好)
         gpt_response = (
-            f"To translate this text, video information is **not required**.\n"
-            f"So the translation of the statement should be:\n{target_ref}"
+            f"This text can be translated **without** video information.\n"
+            f"The translation is:\n{target_ref}"
         )
 
     else:
         # Case: 需要视频信息 (Visual 最好)
         cue_name = cue_key.replace("translation_", "")
         gpt_response = (
-            f"To translate this text, video information is **required** [{cue_name}].\n"
+            f"To translate this text, video information [{cue_name}] is **required**.\n"
             f"It is:\n{cue_content}\n"
-            f"So the translation of the statement should be:\n{target_ref}"
+            f"So the translation is:\n{target_ref}"
         )
 
     # 构造 Video 路径
