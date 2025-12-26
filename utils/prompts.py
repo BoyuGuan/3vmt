@@ -74,11 +74,7 @@ def getUserPrompt(promptLanguage, srcLanguage, tgtLanguage, srcSent, shotNum=0, 
         userPrompts["en"] = f"Please translate the following input sentence from {languageID2text['en'][srcLanguage]} to {languageID2text['en'][tgtLanguage]} according to the video. ONLY output the translated sentence.\n"
         userPrompts["zh"] += f"输入句子：\n{srcSent}\n翻译后的句子：\n"
         userPrompts["en"] += f"Input sentence:\n{srcSent}\nTranslated sentence:\n"
-        if prompt_type == "newVideoTextPromptTest":
-            userPrompts["en"] = f"You are provided with a video context. Your task is to translate the given input sentence from {languageID2text['zh'][srcLanguage]} into {languageID2text['zh'][tgtLanguage]}, strictly based on the video's content.\n"
-            userPrompts["en"] += f"Requirements:\nONLY output the translated sentence.\nEnsure the translation is consistent with the video's context and meaning.\n\n" 
-            userPrompts["en"] += f"Input sentence:\n{srcSent}\nTranslated sentence:\n"
-        elif prompt_type == "videoTranslationWithSelfReasoningCue":
+        if prompt_type == "videoTranslationWithSelfReasoningCue":
             userPrompts["en"] = f"I will give you an input sentence, which is a subtitle of a video clip, and I will also input the corresponding video clip.\n"
             userPrompts["en"] += f"I need to translate this input sentence from {srcLanguage} to {tgtLanguage}. Please refer to thevisual cues in the video, such as people, objects, actions, OCR, spatial relations, and pointing/gaze cues when producing the translation of this sentence.\n"
             userPrompts["en"] += f"Input sentence:\n{srcSent}\nTranslated sentence:\n"
