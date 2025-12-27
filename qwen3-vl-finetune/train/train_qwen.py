@@ -26,6 +26,7 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.append(str(project_root))
 
 from trainer import replace_qwen2_vl_attention_class
+from train.custom_trainer import TranslationLossTrainerV2
 
 from transformers import (
     Qwen2VLForConditionalGeneration,
@@ -184,7 +185,7 @@ def train(attn_implementation="flash_attention_2"):
             model.model.print_trainable_parameters()
     
     data_module = make_supervised_data_module(processor, data_args=data_args)
-    trainer = Trainer(
+    trainer = TranslationLossTrainerV2(
         model=model, processing_class=tokenizer, args=training_args, **data_module
     )
 
