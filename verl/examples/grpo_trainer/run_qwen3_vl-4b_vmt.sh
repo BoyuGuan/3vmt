@@ -11,17 +11,17 @@ TRAIN_DATA=${TRAIN_DATA:-"$HOME/3vmt/data/work3/rl_data/train.parquet"}
 VAL_DATA=${VAL_DATA:-"$HOME/3vmt/data/work3/rl_data/val.parquet"}
 
 # === 模型路径 ===
-MODEL_PATH=${MODEL_PATH:-"$HOME/3vmt/huggingface/Qwen/Qwen3-VL-4B-Instruct"}
+MODEL_PATH=${MODEL_PATH:-"$HOME/3vmt/qwen3-vl-finetune/output/DART-SFT-Qwen3VL-4B"}
 
 # === 输出路径 ===
 PROJECT_NAME=${PROJECT_NAME:-"verl_grpo_vmt"}
-EXPERIMENT_NAME=${EXPERIMENT_NAME:-"qwen3_vl_4b_vmt_safe_run"}
+EXPERIMENT_NAME=${EXPERIMENT_NAME:-"qwen3_vl_4b_vmt_dart_GRPO"}
 CHECKPOINT_DIR=${CHECKPOINT_DIR:-"$HOME/3vmt/checkpoint/$(date +%Y-%m-%d-%H-%M-%S)"}
 
 # === 关键训练参数 (针对视频显存优化) ===
-# 1. 总Batch Size: 建议设为 64 或 128。
+# 1. 总Batch Size: 增大以提高GPU利用率
 #    公式: Global_Batch = Micro_Batch * GPU数量 * 梯度累积步数
-TRAIN_BATCH_SIZE=${TRAIN_BATCH_SIZE:-64}
+TRAIN_BATCH_SIZE=${TRAIN_BATCH_SIZE:-128}  # 从64增加到128
 
 # 2. 序列长度
 #    10s视频约占 3000-5000 tokens，加上翻译文本，8192通常够用
@@ -40,10 +40,31 @@ N_ROLLOUTS=${N_ROLLOUTS:-4}
 N_GPUS=${N_GPUS:-4}
 TP_SIZE=${TP_SIZE:-1} # 4B 模型单卡能放下，TP=1 效率最高
 
+# === 性能优化参数 ===
+# Micro batch sizes - 增大以提高吞吐量
+PPO_MINI_BATCH_SIZE=${PPO_MINI_BATCH_SIZE:-64}     
+PPO_MICRO_BATCH_SIZE=${PPO_MICRO_BATCH_SIZE:-2}    
+ROLLOUT_MICRO_BATCH=${ROLLOUT_MICRO_BATCH:-4}      
+REF_MICRO_BATCH=${REF_MICRO_BATCH:-4}              
+
+# GPU显存利用率 - A100-80GB可以设得更高
+GPU_MEMORY_UTIL=${GPU_MEMORY_UTIL:-0.8}           
+
 mkdir -p "$CHECKPOINT_DIR"
 
+# === 环境优化 ===
+# 启用 CUDA 优化
+export CUDA_DEVICE_MAX_CONNECTIONS=1
+# 启用 TF32 以加速矩阵运算（A100支持）
+export NVIDIA_TF32_OVERRIDE=1
+# 优化 NCCL 通信
+export NCCL_IB_DISABLE=0
+export NCCL_P2P_DISABLE=0
+# PyTorch 优化
+# export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
 # === 启动命令 ===
-# 注意: 为了防OOM，micro_batch_size 被严格限制了
+# 优化后的配置：提高显存利用率和训练速度
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
@@ -55,13 +76,14 @@ python3 -m verl.trainer.main_ppo \
     data.filter_overlong_prompts=False \
     data.truncation='right' \
     data.video_key=video \
+    \
     actor_rollout_ref.model.path=$MODEL_PATH \
     actor_rollout_ref.actor.optim.lr=$LEARNING_RATE \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.model.use_fused_kernels=True \
     \
-    actor_rollout_ref.actor.ppo_mini_batch_size=32 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=$PPO_MINI_BATCH_SIZE \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=$PPO_MICRO_BATCH_SIZE \
     \
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.kl_loss_coef=0.01 \
@@ -73,16 +95,16 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.actor.fsdp_config.model_dtype=bfloat16 \
     \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=2 \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=$ROLLOUT_MICRO_BATCH \
     actor_rollout_ref.rollout.tensor_model_parallel_size=$TP_SIZE \
     actor_rollout_ref.rollout.name=$ENGINE \
     \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=$GPU_MEMORY_UTIL \
     \
-    actor_rollout_ref.rollout.enforce_eager=True \
+    actor_rollout_ref.rollout.enforce_eager=False \
     actor_rollout_ref.rollout.n=$N_ROLLOUTS \
     \
-    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=2 \
+    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=$REF_MICRO_BATCH \
     actor_rollout_ref.ref.fsdp_config.param_offload=False \
     \
     algorithm.use_kl_in_reward=False \

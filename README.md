@@ -57,7 +57,7 @@ python ./codes/vllmServerInference.py \
 CUDA_VISIBLE_DEVICES=0 python3 ./preprocessData/getDiffScores.py # 计算comet和BLEURT需要显卡
 ```
 ## 步骤 6: 构造实验数据
-选取MM信息增益的数据和纯文本数据，构造SFT数据并准备进行RL。
+选取MM信息增益的数据和纯文本数据，构造SFT和RL数据。
 ```bash
 python3 ./preprocessData/getBetterTrainData.py  --comet_diff 4.0
 ```
@@ -66,6 +66,23 @@ python3 ./preprocessData/getBetterTrainData.py  --comet_diff 4.0
 
 # SFT
 SFT代码参考的是[Qwen3-VL-官方repo的finetune代码](https://github.com/QwenLM/Qwen3-VL/tree/main/qwen-vl-finetune)。
+
+# RL
+因为qwen3VL刚出不久，所以verl环境比较难配。需要安装比较新的包才可以较好的支持。因为vllm在安装时不太稳定，所以此处基于sglang安装。 
+安装过程如下：
+
+```bash
+conda create -n sglangverl python=3.12 -y 
+conda install -c nvidia cuda-toolkit=12.8 -y # 用conda安装cuda相关内容
+uv pip install "sglang"
+git clone https://github.com/volcengine/verl.git
+cd verl
+pip3 install -e .
+pip3 install vllm
+MAX_JOBS=12 pip install flash-attn --no-build-isolation
+pip install qwen_vl_utils
+```
+
 
 <!-- qwenvl/train/argument.py → utils/qwen25VL_sft_argument.py
 qwenvl/train/train_qwen.py →  codes/train_qwen25vl_sft.py
