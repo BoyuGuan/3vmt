@@ -14,6 +14,7 @@ import os
 import argparse
 import multiprocessing as mp
 from typing import List, Set, Dict
+from copy import deepcopy
 
 from fastapi import FastAPI, HTTPException, Request
 from starlette.responses import Response
@@ -134,11 +135,9 @@ def build_app(
     # ---- 可选：warmup，减少首次请求的 CUDA kernel / cuDNN autotune 冷启动 ----
     if warmup:
         try:
-            # 用很短的 dummy 文本即可触发主要算子初始化
             _ = comet_score_fast([{"src": "a", "mt": "a", "ref": "a"}])
             _ = comet_score_fast([{"src": "b", "mt": "b", "ref": "b"}])
         except Exception:
-            # warmup 失败不应阻止服务启动
             pass
 
     @app.get("/health")
@@ -156,13 +155,38 @@ def build_app(
         ]
 
         try:
-            # 若你希望严格固定 batch_size，可在这里做分块；但在线单请求一般不需要。
             system_score, scores = comet_score_fast(data)
             return {"system_score": system_score, "scores": scores}
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"推理出错: {str(e)}")
 
     return app
+
+
+def _build_uvicorn_log_config_with_time() -> dict:
+    """
+    为 uvicorn 的 default/access 日志加上时间戳（含毫秒）。
+    重点是 uvicorn.access 的那条：
+    INFO:     172.18... - "POST ..." 200 OK
+    """
+    from uvicorn.config import LOGGING_CONFIG as UVICORN_LOGGING_CONFIG
+
+    log_config = deepcopy(UVICORN_LOGGING_CONFIG)
+
+    # 统一时间格式（logging 不支持 %f，毫秒用 %(msecs)03d）
+    datefmt = "%Y-%m-%d %H:%M:%S"
+
+    # default 日志格式（例如启动、异常等）
+    log_config["formatters"]["default"]["fmt"] = "%(asctime)s.%(msecs)03d %(levelprefix)s %(message)s"
+    log_config["formatters"]["default"]["datefmt"] = datefmt
+
+    # access 日志格式（请求行那条）
+    log_config["formatters"]["access"]["fmt"] = (
+        '%(asctime)s.%(msecs)03d %(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s'
+    )
+    log_config["formatters"]["access"]["datefmt"] = datefmt
+
+    return log_config
 
 
 def serve_one(
@@ -215,8 +239,18 @@ def serve_one(
         warmup=warmup,
     )
 
+    # 关键改动：为 uvicorn access log 加时间戳
+    log_config = _build_uvicorn_log_config_with_time()
+
     # uvicorn 单 worker（一个进程一个模型实例），避免额外复制模型
-    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=port,
+        log_level="info",
+        access_log=True,
+        log_config=log_config,
+    )
 
 
 def main():
