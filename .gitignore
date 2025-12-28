@@ -4,10 +4,12 @@
 /log
 /checkpoint
 *wandb*
-/verl
 /qwen3-vl-finetune/log
 /qwen3-vl-finetune/output
+/paper/output
+/paper/src
 
+# /verl
 # /huggingface
 # /data
 # /qwen3-vl-f

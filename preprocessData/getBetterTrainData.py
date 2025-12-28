@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
-# 同时保存SFT数据和对应的源数据
+# 同时保存SFT数据和对应的源数据，并生成支持多Cue并列逻辑的RL数据
 
 import argparse
 import json
 import os
 import random
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, List, Tuple
+import datasets
 
 # 设置日志格式
 logging.basicConfig(
@@ -38,14 +39,29 @@ def get_clean_cue_content(item: Dict[str, Any], cue_type: str) -> str:
     
     return full_prompt
 
+def construct_video_data(video_rel_path: str) -> List[Dict[str, Any]]:
+    """
+    构造符合 Qwen2-VL/Verl 要求的视频数据格式。
+    将相对路径转换为绝对路径，并包装为字典结构。
+    """
+    abs_path = os.path.abspath(video_rel_path)
+    # 构造符合 qwen2-vl 要求的格式
+    video_info = {
+        "type": "video",
+        "video": f"file://{abs_path}",
+        "fps": 2.0,       # 默认推荐设置
+        "min_frames": 4,  # 默认推荐设置
+        "max_frames": 768 # 默认推荐设置
+    }
+    # 返回列表格式以支持 verl 的数据处理流程
+    return [video_info]
+
 def generate_sft_item(item: Dict[str, Any], 
                       sft_type: str, 
                       cue_key: str = None, 
                       cue_content: str = None) -> Dict[str, Any]:
     """
     构造符合要求的 SFT 数据格式 (CoT 风格)。
-    Human: Reference video information to translate the text. Input...
-    GPT: To translate this text, video information is [req/not req]. It is [...]. So the translation is [...]
     """
     video_id = item['video_id']
     clip_id = item['clip_id']
@@ -66,20 +82,15 @@ def generate_sft_item(item: Dict[str, Any],
     if src_lang == 'zh':
         src_sentence = item.get('ZH_sentence', '')
         target_ref = item.get('EN_sentence', '')
-    else:
-        src_sentence = item.get('EN_sentence', '')
-        target_ref = item.get('ZH_sentence', '')
-
-    # --- 1. 构造统一的 Human 输入 ---
-    # 无论是否需要视频，Human 的提问现在是统一的
-    
-    if src_lang == 'zh':
         source_language = "Chinese"
         target_language = "English"
     else:
+        src_sentence = item.get('EN_sentence', '')
+        target_ref = item.get('ZH_sentence', '')
         source_language = "English"
         target_language = "Chinese"
 
+    # --- 1. 构造统一的 Human 输入 ---
     human_prompt = (
         f"<video>\n"
         f"Please translate the following input sentence from {source_language} to {target_language} according to the video. ONLY output the translated sentence.\n"
@@ -104,11 +115,12 @@ def generate_sft_item(item: Dict[str, Any],
             f"So the translation is:\n{target_ref}"
         )
 
-    # 构造 Video 路径
-    video_path = f"./data/TriFine/videoClips/{video_id}/{video_id}_{clip_id}.mp4"
+    # 构造 Video 路径并转换为字典格式
+    video_path_rel = f"./data/TriFine/videoClips/{video_id}/{video_id}_{clip_id}.mp4"
+    video_data = construct_video_data(video_path_rel)
 
     return {
-        "video": video_path,
+        "video": video_data, # 修改此处：传入构造好的列表字典
         "conversations": [
             {
                 "from": "human",
@@ -121,13 +133,182 @@ def generate_sft_item(item: Dict[str, Any],
         ]
     }
 
+def prepare_rl_candidates(data: List[Dict[str, Any]], diff_threshold: float = 2.0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    准备 RL 数据的候选集，分为两组：
+    - Group A: visual enhanced (comet_diff > threshold). 
+    - Group B: baseline best
+    """
+    group_a_candidates = []
+    group_b_candidates = []
+    
+    for item in data:
+        metrics = item.get("translation_metrics", {})
+        if not metrics:
+            continue
+
+        baseline_metrics = metrics.get("translation_baseline")
+        if not baseline_metrics:
+            continue
+        
+        baseline_comet = baseline_metrics["COMET"]
+        visual_keys = [k for k in metrics.keys() if k not in EXCLUDED_FIELDS]
+        
+        if not visual_keys:
+            group_b_candidates.append(item)
+            continue
+        
+        # 1. 计算该 item 所有 visual cue 的 diff
+        cue_diffs = []
+        for k in visual_keys:
+            score = metrics[k]["COMET"]
+            diff = score - baseline_comet
+            cue_diffs.append((k, score, diff))
+        
+        if not cue_diffs:
+            group_b_candidates.append(item)
+            continue
+            
+        # 找出该 item 下最大的 diff
+        max_diff = max(x[2] for x in cue_diffs)
+        
+        # 2. 判定归属 Group A 还是 Group B
+        if max_diff > diff_threshold:
+            # Group A: 找出所有等于 max_diff 的 cues (处理平局)
+            epsilon = 1e-9
+            best_candidates = [x for x in cue_diffs if abs(x[2] - max_diff) < epsilon]
+            
+            # 记录所有并列最佳的 cue name (去掉 "translation_" 前缀)
+            tied_cue_names = [x[0].replace("translation_", "") for x in best_candidates]
+            
+            # 为每一个并列最佳的 cue 生成一个候选样本
+            for cue_key, score, diff in best_candidates:
+                group_a_candidates.append({
+                    "item": item,
+                    "cue_key": cue_key,
+                    "best_visual_comet": score,
+                    "comet_diff": diff,
+                    "tied_cues": tied_cue_names 
+                })
+        else:
+            # Group B
+            group_b_candidates.append(item)
+    
+    # Group A 按 comet_diff 全局降序排序
+    group_a_candidates.sort(key=lambda x: x["comet_diff"], reverse=True)
+    
+    return group_a_candidates, group_b_candidates
+
+def generate_rl_data(item: Dict[str, Any], 
+                      cue_key: str = None,
+                      rl_type: str = "visual",
+                      tied_cues: List[str] = None,
+                      data_source: str = "DART_VMT") -> Dict[str, Any]:
+    """
+    生成 RL 格式的数据。
+    """
+    video_id = item['video_id']
+    clip_id = item['clip_id']
+    
+    # 确定源语言和目标语言
+    src_lang = item.get('src_lang', '').strip().lower()
+    if not src_lang:
+        lang_field = item.get('language', '').lower()
+        if lang_field.startswith('en'):
+            src_lang = 'en'
+        elif lang_field.startswith('zh'):
+            src_lang = 'zh'
+        else:
+            raise ValueError(f"Cannot determine source language for item with video_id: {video_id}")
+    
+    if src_lang == 'zh':
+        src_sentence = item.get('ZH_sentence', '')
+        target_ref = item.get('EN_sentence', '')
+        source_language = "Chinese"
+        target_language = "English"
+    else:
+        src_sentence = item.get('EN_sentence', '')
+        target_ref = item.get('ZH_sentence', '')
+        source_language = "English"
+        target_language = "Chinese"
+    
+    # 构造 prompt
+    prompt_text = (
+        f"<video>\n"
+        f"Please translate the following input sentence from {source_language} to {target_language} according to the video. ONLY output the translated sentence.\n"
+        f"Input sentence:\n"
+        f"{src_sentence}\n"
+    )
+    
+    # 构造 Video 数据（修复报错的关键部分）
+    video_path_rel = f"./data/TriFine/videoClips/{video_id}/{video_id}_{clip_id}.mp4"
+    video_data = construct_video_data(video_path_rel)
+    
+    metrics = item.get("translation_metrics", {})
+    baseline_comet = metrics.get("translation_baseline", {}).get("COMET", 0.0)
+    
+    extra_info = {
+        "video_id": video_id,
+        "clip_id": clip_id,
+        "source_sentence": src_sentence,
+        "target_reference": target_ref,
+        "source_language": source_language,
+        "target_language": target_language,
+        "baseline_comet": baseline_comet,
+        "rl_type": rl_type,
+    }
+    
+    if rl_type == "visual" and cue_key:
+        cue_content = get_clean_cue_content(item, cue_key)
+        cue_name = cue_key.replace("translation_", "")
+        cue_comet = metrics.get(cue_key, {}).get("COMET", 0.0)
+        
+        extra_info.update({
+            "current_cue_type": cue_name,   
+            "best_cue_types": tied_cues if tied_cues else [cue_name], 
+            "cue_content": cue_content,
+            "best_cue_comet": cue_comet,
+            "comet_diff": cue_comet - baseline_comet,
+        })
+    else:
+        extra_info.update({
+            "current_cue_type": "baseline",
+            "best_cue_types": ["baseline"],
+            "cue_content": "No visual cue needed",
+            "best_cue_comet": baseline_comet,
+            "comet_diff": 0.0,
+        })
+    
+    rl_data = {
+        "data_source": data_source,
+        "prompt": [
+            {
+                "role": "user",
+                "content": prompt_text,
+            }
+        ],
+        "video": video_data, # 修改此处：传入构造好的列表字典
+        "ability": "video_translation",
+        "reward_model": {
+            "style": "metric",
+            "ground_truth": target_ref,
+            "metric": "COMET",
+        },
+        "extra_info": extra_info,
+    }
+    
+    return rl_data
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input_json", type=str, default="./data/work3/MMinfoAndTrans/promptsAndTransMetrics.json")
     parser.add_argument("--output_json", type=str, default="./data/work3/sftData/sft_MMInfo_train_data.json")
     parser.add_argument("--output_source_json", type=str, default="./data/work3/meta_train_data.json", help="Save corresponding source items from input_json")
+    parser.add_argument("--output_rl_dir", type=str, default="./data/work3/rl_data", help="Directory to save RL data in parquet format")
     parser.add_argument("--alpha", type=float, default=0.6, help="Ratio of visual-enhanced samples (alpha) to baseline samples (1-alpha)")
     parser.add_argument("--comet_diff", type=float, default=2.0, help="Threshold for COMET improvement over baseline")
+    parser.add_argument("--rl_train_size", type=int, default=5000, help="Number of RL training samples")
+    parser.add_argument("--rl_val_size", type=int, default=200, help="Number of RL validation samples")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
@@ -141,12 +322,13 @@ def main():
 
     logger.info(f"Loaded {len(data)} items from {args.input_json}")
 
-    # --- 任务 1: 统计 diff > comet_diff 的样本数（同一样本只计一次） ---
-    count_diff_gt_1 = 0
+    # ==========================
+    # SFT Data Generation (Task 1-3)
+    # ==========================
     
-    # --- 任务 2 准备: 筛选候选集 ---
-    group_a_candidates = [] 
-    group_b_candidates = []
+    count_diff_gt_1 = 0
+    sft_group_a_candidates = [] 
+    sft_group_b_candidates = []
 
     for item in data:
         metrics = item.get("translation_metrics", {})
@@ -158,10 +340,9 @@ def main():
             continue
         
         baseline_comet = baseline_metrics["COMET"]
-        
         visual_keys = [k for k in metrics.keys() if k not in EXCLUDED_FIELDS]
         
-        # 1. 筛选 Group A: COMET > Baseline + comet_diff
+        # SFT 逻辑 1: 筛选 Group A
         better_cues = []
         for k in visual_keys:
             score = metrics[k]["COMET"]
@@ -174,106 +355,160 @@ def main():
             best_cues_for_item = [c for c in better_cues if c[1] == max_score]
             
             for cue_key, score in best_cues_for_item:
-                group_a_candidates.append({
+                sft_group_a_candidates.append({
                     "item": item,
                     "cue_key": cue_key,
                     "score": score
                 })
         
-        # 2. 筛选 Group B: Baseline is Highest (or close enough that visual doesn't help significantly)
-        # 这里逻辑保持原样：如果没有visual显著好于baseline，且baseline本身是最高的(或者没有visual keys)，则进入B
+        # SFT 逻辑 2: 筛选 Group B
         is_baseline_highest = True
         for k in visual_keys:
-            # 原逻辑是严格大于，这里保持一致
             if metrics[k]["COMET"] > baseline_comet:
                 is_baseline_highest = False
                 break
         
         if is_baseline_highest:
-            group_b_candidates.append({
+            sft_group_b_candidates.append({
                 "item": item,
                 "score": baseline_comet
             })
 
-    # 输出统计结果
     logger.info(f"-" * 30)
-    logger.info(
-        f"Task 1 Result: Total samples where a visual cue COMET > Baseline + {args.comet_diff}: {count_diff_gt_1}"
-    )
-    logger.info(f"-" * 30)
-
-    # --- 任务 2 采样逻辑 ---
-    len_a = len(group_a_candidates)
-    len_b = len(group_b_candidates)
+    logger.info(f"SFT Candidates (Task 1): Samples with Visual > Base + {args.comet_diff}: {count_diff_gt_1}")
     
-    logger.info(f"Candidates Found -> Group A (Visual > Base+{args.comet_diff}): {len_a}")
-    logger.info(f"Candidates Found -> Group B (Baseline Highest): {len_b}")
-
-    if args.alpha <= 0 or args.alpha >= 1:
-        logger.error("Alpha must be between 0 and 1.")
-        return
-
-    # 计算采样数
-    max_total_by_a = len_a / args.alpha
-    max_total_by_b = len_b / (1.0 - args.alpha)
-    target_total = min(max_total_by_a, max_total_by_b)
+    # SFT 采样
+    sft_len_a = len(sft_group_a_candidates)
+    sft_len_b = len(sft_group_b_candidates)
     
-    target_count_a = int(target_total * args.alpha)
-    target_count_b = int(target_total * (1.0 - args.alpha))
-
-    sampled_a = random.sample(group_a_candidates, target_count_a) if len_a >= target_count_a else group_a_candidates
-    sampled_b = random.sample(group_b_candidates, target_count_b) if len_b >= target_count_b else group_b_candidates
-
-    logger.info(f"Sampling Target -> Total: {int(target_total)} | Group A: {len(sampled_a)} | Group B: {len(sampled_b)}")
-
-    # --- 任务 3: 构造 SFT 数据 ---
+    sft_target_total = min(sft_len_a / args.alpha, sft_len_b / (1.0 - args.alpha))
+    sft_target_a = int(sft_target_total * args.alpha)
+    sft_target_b = int(sft_target_total * (1.0 - args.alpha))
+    
+    sft_sampled_a = random.sample(sft_group_a_candidates, sft_target_a) if sft_len_a >= sft_target_a else sft_group_a_candidates
+    sft_sampled_b = random.sample(sft_group_b_candidates, sft_target_b) if sft_len_b >= sft_target_b else sft_group_b_candidates
+    
+    # 构造 SFT 数据
     sft_pairs = []
-
-    # 处理 Group A (Visual Enhanced)
-    for obj in sampled_a:
+    for obj in sft_sampled_a:
         item = obj['item']
         cue_key = obj['cue_key']
         cue_content = get_clean_cue_content(item, cue_key)
-        
-        sft_item = generate_sft_item(
-            item=item,
-            sft_type="visual",
-            cue_key=cue_key,
-            cue_content=cue_content
-        )
+        sft_item = generate_sft_item(item, sft_type="visual", cue_key=cue_key, cue_content=cue_content)
         sft_pairs.append((sft_item, item))
 
-    # 处理 Group B (Baseline Best)
-    for obj in sampled_b:
+    for obj in sft_sampled_b:
         item = obj['item']
-        sft_item = generate_sft_item(
-            item=item,
-            sft_type="baseline"
-        )
+        sft_item = generate_sft_item(item, sft_type="baseline")
         sft_pairs.append((sft_item, item))
 
     random.shuffle(sft_pairs)
-
-    sft_data = [pair[0] for pair in sft_pairs]
-    source_data = [pair[1] for pair in sft_pairs]
-
-    output_source_json = args.output_source_json
-
+    
+    # 保存 SFT 数据
     output_dir = os.path.dirname(args.output_json)
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
     with open(args.output_json, "w", encoding="utf-8") as f:
-        json.dump(sft_data, f, ensure_ascii=False, indent=4)
-
-    logger.info(f"SFT data (CoT Format) saved to: {args.output_json}")
-
-    source_dir = os.path.dirname(output_source_json)
+        json.dump([p[0] for p in sft_pairs], f, ensure_ascii=False, indent=4)
+        
+    source_dir = os.path.dirname(args.output_source_json)
     if source_dir:
         os.makedirs(source_dir, exist_ok=True)
-    with open(output_source_json, "w", encoding="utf-8") as f:
-        json.dump(source_data, f, ensure_ascii=False, indent=4)
+    with open(args.output_source_json, "w", encoding="utf-8") as f:
+        json.dump([p[1] for p in sft_pairs], f, ensure_ascii=False, indent=4)
+        
+    logger.info(f"SFT data saved to: {args.output_json}")
 
-    logger.info(f"Source items saved to: {output_source_json}")
+    # ==========================
+    # RL Data Generation (Task 4 - Updated)
+    # ==========================
+    logger.info(f"\n{'-' * 30}")
+    logger.info("Generating RL data with updated logic (Tie-Aware Multi-Cue)...")
+    
+    # 1. 准备候选集
+    group_a_candidates, group_b_candidates = prepare_rl_candidates(data, diff_threshold=args.comet_diff)
+    
+    len_a = len(group_a_candidates)
+    len_b = len(group_b_candidates)
+    
+    logger.info(f"RL Candidates Pool -> Group A (Visual Diff > {args.comet_diff}): {len_a} samples")
+    logger.info(f"RL Candidates Pool -> Group B (Baseline Best/Diff Low): {len_b} items")
+    
+    if len_a == 0 and len_b == 0:
+        logger.warning("No valid samples found for RL data generation.")
+        return
+
+    # 2. 计算需要的总样本数和分组目标
+    total_rl_size = args.rl_train_size + args.rl_val_size
+    target_count_a = int(total_rl_size * args.alpha)
+    target_count_b = int(total_rl_size * (1.0 - args.alpha))
+    
+    # 3. 采样
+    sampled_a = group_a_candidates[:target_count_a]
+    if len(sampled_a) < target_count_a:
+        logger.warning(f"Not enough Group A candidates! Requested {target_count_a}, found {len(sampled_a)}.")
+    
+    sampled_b = random.sample(group_b_candidates, target_count_b) if len_b >= target_count_b else group_b_candidates
+    
+    logger.info(f"Final Selection -> Group A: {len(sampled_a)} | Group B: {len(sampled_b)}")
+    
+    # 4. 生成 RL 数据
+    rl_data_list = []
+    
+    # 处理 Group A
+    for candidate in sampled_a:
+        item = candidate['item']
+        cue_key = candidate['cue_key']
+        tied_cues = candidate['tied_cues']
+        
+        rl_item = generate_rl_data(
+            item, 
+            cue_key=cue_key, 
+            rl_type="visual",
+            tied_cues=tied_cues
+        )
+        rl_data_list.append(rl_item)
+    
+    # 处理 Group B
+    for item in sampled_b:
+        rl_item = generate_rl_data(item, rl_type="baseline")
+        rl_data_list.append(rl_item)
+    
+    # 5. 打乱和分割
+    random.shuffle(rl_data_list)
+    
+    actual_total = len(rl_data_list)
+    if actual_total < total_rl_size:
+        actual_train_size = int(actual_total * (args.rl_train_size / total_rl_size))
+    else:
+        actual_train_size = args.rl_train_size
+
+    rl_train_data = rl_data_list[:actual_train_size]
+    rl_val_data = rl_data_list[actual_train_size:]
+    
+    # 6. 保存
+    os.makedirs(args.output_rl_dir, exist_ok=True)
+    
+    if rl_train_data:
+        rl_train_dataset = datasets.Dataset.from_list(rl_train_data)
+        rl_train_path = os.path.join(args.output_rl_dir, "train.parquet")
+        rl_train_dataset.to_parquet(rl_train_path)
+        logger.info(f"RL training data saved to: {rl_train_path} ({len(rl_train_data)} samples)")
+        
+        vis_count = sum(1 for x in rl_train_data if x['extra_info']['rl_type'] == 'visual')
+        multi_cue_count = sum(1 for x in rl_train_data if x['extra_info'].get('best_cue_types') and len(x['extra_info']['best_cue_types']) > 1)
+        
+        logger.info(f"  - Visual Enhanced: {vis_count}")
+        logger.info(f"  - Baseline Best: {len(rl_train_data) - vis_count}")
+        logger.info(f"  - Samples from Multi-Max-Cue Items: {multi_cue_count}")
+
+    if rl_val_data:
+        rl_val_dataset = datasets.Dataset.from_list(rl_val_data)
+        rl_val_path = os.path.join(args.output_rl_dir, "val.parquet")
+        rl_val_dataset.to_parquet(rl_val_path)
+        logger.info(f"RL validation data saved to: {rl_val_path} ({len(rl_val_data)} samples)")
+
+    logger.info(f"{'-' * 30}\n")
 
 if __name__ == "__main__":
     main()

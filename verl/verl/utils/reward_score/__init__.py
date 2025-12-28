@@ -90,6 +90,10 @@ def default_compute_score(
         from . import geo3k
 
         res = geo3k.compute_score(solution_str, ground_truth)
+    elif data_source in ["TriFine_VMT", "DART_VMT", "VMT", "video_translation"]:
+        from . import vmt_translation
+
+        res = vmt_translation.compute_score(solution_str, ground_truth, extra_info=extra_info, return_details=True)
     elif data_source in [
         "searchR1_nq",
         "searchR1_triviaqa",
