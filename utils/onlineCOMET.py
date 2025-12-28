@@ -1,82 +1,257 @@
+# comet_cluster_server_fast.py
+# ------------------------------------------------------------
+# 目标：
+# 1) GPU0 启动 4 个进程：监听 10080-10083
+# 2) GPU1 启动 4 个进程：监听 10084-10087
+# 3) 仅允许来自 172.18.31.61 的请求，其它返回空响应（默认 403）
+# 4) 低延迟推理：方案 B（prepare_for_inference + predict_step）+ warmup + 限制 CPU 线程
+#
+# 依赖：
+#   pip install fastapi uvicorn comet
+# ------------------------------------------------------------
+
 import os
 import argparse
-import uvicorn
-from fastapi import FastAPI, HTTPException
+import multiprocessing as mp
+from typing import List, Set, Dict
+
+from fastapi import FastAPI, HTTPException, Request
+from starlette.responses import Response
 from pydantic import BaseModel
-from typing import List
 
-# ---------------------------------------------------------
-# 0. 安装pip依赖
-# pip install fastapi uvicorn
-# ---------------------------------------------------------
+# ----------------------------
+# 端口 -> GPU 映射
+# ----------------------------
+PORT_GPU_MAP: Dict[int, int] = {
+    10080: 0, 10081: 0, 10082: 0, 10083: 0,  # GPU 0 (4 procs)
+    10084: 1, 10085: 1, 10086: 1, 10087: 1,  # GPU 1 (4 procs)
+}
 
-# ---------------------------------------------------------
-# 1. 配置命令行参数 (在 import torch/comet 之前处理最好)
-# ---------------------------------------------------------
-parser = argparse.ArgumentParser(description="COMET Metric Server")
-parser.add_argument("--device", type=str, default="3", help="指定使用的显卡ID，例如 '0' 或 '1'")
-parser.add_argument("--port", type=int, default=10086, help="服务监听端口")
-args = parser.parse_args()
+DEFAULT_MODEL_PATH = "./huggingface/Unbabel/wmt22-comet-da/checkpoints/model.ckpt"
+DEFAULT_ALLOWED_CLIENT = "172.18.31.61"
 
-# 设置环境变量，必须在模型加载前设置
-os.environ["CUDA_VISIBLE_DEVICES"] = args.device
-print(f"=== 配置: 使用显卡 CUDA_VISIBLE_DEVICES={args.device} (服务端口: {args.port}) ===")
 
-# ---------------------------------------------------------
-# 2. 导入模型库 (设置完环境变量后再导入)
-# ---------------------------------------------------------
-from comet import load_from_checkpoint
-
-# 定义请求数据结构
 class CometRequest(BaseModel):
     src: List[str]
     preds: List[str]
     refs: List[str]
 
-app = FastAPI()
 
-# ---------------------------------------------------------
-# 3. 加载模型 (常驻显存)
-# ---------------------------------------------------------
-# 请确保路径正确
-MODEL_PATH = "./huggingface/Unbabel/wmt22-comet-da/checkpoints/model.ckpt"
+def _get_client_ip(request: Request) -> str:
+    """
+    获取客户端 IP：
+    - 若经过反代/网关，优先使用 X-Forwarded-For / X-Real-IP
+    - 否则使用 request.client.host
+    """
+    xff = request.headers.get("x-forwarded-for", "")
+    if xff:
+        return xff.split(",")[0].strip()
 
-print(f"正在加载模型到 GPU (映射后ID: 0)...")
-try:
-    # 加载模型
-    comet_model = load_from_checkpoint(MODEL_PATH)
-    # 强制将模型移动到 CUDA (由于设置了VISIBLE_DEVICES，这里用 cuda:0 即可指向指定卡)
-    comet_model = comet_model.cuda()
-    comet_model.eval() # 设置为评估模式
-    print("模型加载完成！")
-except Exception as e:
-    print(f"CRITICAL ERROR: 模型加载失败: {e}")
-    exit(1)
+    xri = request.headers.get("x-real-ip", "")
+    if xri:
+        return xri.strip()
 
-@app.post("/compute_score")
-async def compute_score(request: CometRequest):
-    if not (len(request.src) == len(request.preds) == len(request.refs)):
-        raise HTTPException(status_code=400, detail="输入列表长度不一致")
-    
-    data = [
-        {"src": src_i, "mt": preds_i, "ref": refs_i} 
-        for src_i, preds_i, refs_i in zip(request.src, request.preds, request.refs)
-    ]
-    
+    if request.client and request.client.host:
+        return request.client.host
+
+    return ""
+
+
+def build_app(
+    model_path: str,
+    allowed_clients: Set[str],
+    batch_size: int,
+    warmup: bool,
+) -> FastAPI:
+    """
+    注意：该函数在子进程内调用，并且在设置 CUDA_VISIBLE_DEVICES 后再 import torch/comet，
+    确保每个子进程只“看到”自己绑定的那张 GPU。
+    """
+    # 子进程内 import（必须在 CUDA_VISIBLE_DEVICES 设置后）
+    import torch
+    from comet import load_from_checkpoint
+
+    app = FastAPI()
+
+    # ---- IP 白名单中间件：非允许 IP 直接拒绝 ----
+    @app.middleware("http")
+    async def ip_allowlist_middleware(request: Request, call_next):
+        client_ip = _get_client_ip(request)
+        if client_ip not in allowed_clients:
+            # “不予回应”的工程实现：返回空 body
+            # 如需更隐蔽可改成 404
+            return Response(status_code=403)
+        return await call_next(request)
+
+    # ---- 设备与性能相关设置 ----
+    DEVICE = torch.device("cuda:0")  # 由于限制了 CUDA_VISIBLE_DEVICES，这里的 cuda:0 就是“映射后的第0张”
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    # 对小 batch 推理通常有利；若遇到形状变化频繁或不稳定，可改回 False
+    torch.backends.cudnn.benchmark = True
+
+    # ---- 加载模型（常驻显存）----
     try:
-        # predict 函数通常接受 gpus 参数。
-        # 因为我们要么已经用 .cuda() 移动了模型，要么通过环境变量限制了可见卡，
-        # 这里的 gpus=1 表示使用"当前可见的1张卡"。
-        # 注意：某些版本的 comet 可能不需要显式 gpus=1，如果报错可改为 gpus=0 或去掉。
-        model_output = comet_model.predict(data, batch_size=8, gpus=1)
-        
-        return {
-            "system_score": model_output.system_score,
-            "scores": model_output.scores
-        }
+        comet_model = load_from_checkpoint(model_path)
+        comet_model = comet_model.to(DEVICE)
+        comet_model.eval()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"推理出错: {str(e)}")
+        raise RuntimeError(f"CRITICAL ERROR: 模型加载失败: {e}") from e
+
+    @torch.inference_mode()
+    def comet_score_fast(samples: List[Dict[str, str]]):
+        """
+        samples: List[{"src":..., "mt":..., "ref":...}]
+        返回：(system_score: float, scores: List[float])
+        """
+        # 1) 构造 batch（绕开 Lightning Trainer / DataLoader）
+        batch = comet_model.prepare_for_inference(samples)
+
+        # 2) 张量搬到 GPU
+        if isinstance(batch, dict):
+            for k, v in list(batch.items()):
+                if torch.is_tensor(v):
+                    batch[k] = v.to(DEVICE, non_blocking=True)
+
+        # 3) 直接 predict_step 前向
+        out = comet_model.predict_step(batch)
+
+        # 4) 兼容不同版本返回格式
+        if isinstance(out, dict):
+            # 取第一个 tensor
+            out = next(v for v in out.values() if torch.is_tensor(v))
+        elif isinstance(out, (list, tuple)) and len(out) > 0:
+            out = out[0]
+
+        if not torch.is_tensor(out):
+            raise RuntimeError(f"Unexpected predict_step output type: {type(out)}")
+
+        scores_t = out.detach().float().view(-1).cpu()
+        scores = scores_t.tolist()
+        system_score = float(sum(scores) / max(len(scores), 1))
+        return system_score, scores
+
+    # ---- 可选：warmup，减少首次请求的 CUDA kernel / cuDNN autotune 冷启动 ----
+    if warmup:
+        try:
+            # 用很短的 dummy 文本即可触发主要算子初始化
+            _ = comet_score_fast([{"src": "a", "mt": "a", "ref": "a"}])
+            _ = comet_score_fast([{"src": "b", "mt": "b", "ref": "b"}])
+        except Exception:
+            # warmup 失败不应阻止服务启动
+            pass
+
+    @app.get("/health")
+    async def health():
+        return {"status": "ok"}
+
+    @app.post("/compute_score")
+    async def compute_score(request: CometRequest):
+        if not (len(request.src) == len(request.preds) == len(request.refs)):
+            raise HTTPException(status_code=400, detail="输入列表长度不一致")
+
+        data = [
+            {"src": s, "mt": p, "ref": r}
+            for s, p, r in zip(request.src, request.preds, request.refs)
+        ]
+
+        try:
+            # 若你希望严格固定 batch_size，可在这里做分块；但在线单请求一般不需要。
+            system_score, scores = comet_score_fast(data)
+            return {"system_score": system_score, "scores": scores}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"推理出错: {str(e)}")
+
+    return app
+
+
+def serve_one(
+    gpu_id: int,
+    port: int,
+    model_path: str,
+    allowed_clients: Set[str],
+    batch_size: int,
+    warmup: bool,
+):
+    """
+    每个子进程：
+    - 绑定指定 GPU（通过 CUDA_VISIBLE_DEVICES）
+    - 限制 CPU 线程（降低多进程争抢导致的抖动与延迟）
+    - 启动一个 uvicorn 实例监听指定端口
+    """
+    # ----------------------------
+    # 关键：必须在 import torch/comet 前设置
+    # ----------------------------
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+
+    # 限制 CPU 线程（必须尽量早设置）
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("MKL_NUM_THREADS", "1")
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+    os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
+    os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
+    # 子进程内导入
+    import torch
+    import uvicorn
+
+    # 同步设置 PyTorch 线程数
+    try:
+        torch.set_num_threads(1)
+        torch.set_num_interop_threads(1)
+    except Exception:
+        pass
+
+    print(
+        f"[PID={os.getpid()}] Start COMET server on port={port}, "
+        f"CUDA_VISIBLE_DEVICES={gpu_id} (mapped cuda:0), allowed={allowed_clients}"
+    )
+
+    app = build_app(
+        model_path=model_path,
+        allowed_clients=allowed_clients,
+        batch_size=batch_size,
+        warmup=warmup,
+    )
+
+    # uvicorn 单 worker（一个进程一个模型实例），避免额外复制模型
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Low-latency COMET Multi-Process Server (2 GPUs, 8 ports)")
+    parser.add_argument("--model_path", type=str, default=DEFAULT_MODEL_PATH, help="COMET checkpoint 路径")
+    parser.add_argument("--allowed_client", type=str, default=DEFAULT_ALLOWED_CLIENT, help="仅允许访问的客户端 IP")
+    parser.add_argument("--batch_size", type=int, default=8, help="保留参数（如需分块可用）")
+    parser.add_argument("--warmup", action="store_true", help="启动时进行 warmup（建议开启）")
+    args = parser.parse_args()
+
+    allowed_clients = {args.allowed_client}
+
+    # 用 spawn：避免父进程 import 影响子进程 CUDA 可见卡设置
+    ctx = mp.get_context("spawn")
+    procs: List[mp.Process] = []
+
+    for port, gpu in sorted(PORT_GPU_MAP.items()):
+        p = ctx.Process(
+            target=serve_one,
+            args=(gpu, port, args.model_path, allowed_clients, args.batch_size, args.warmup),
+            daemon=False,
+        )
+        p.start()
+        procs.append(p)
+
+    try:
+        for p in procs:
+            p.join()
+    except KeyboardInterrupt:
+        for p in procs:
+            if p.is_alive():
+                p.terminate()
+        for p in procs:
+            p.join()
+
 
 if __name__ == "__main__":
-    # 启动服务
-    uvicorn.run(app, host="0.0.0.0", port=args.port)
+    main()
