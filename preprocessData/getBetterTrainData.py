@@ -307,8 +307,8 @@ def main():
     parser.add_argument("--output_rl_dir", type=str, default="./data/work3/rl_data", help="Directory to save RL data in parquet format")
     parser.add_argument("--alpha", type=float, default=0.6, help="Ratio of visual-enhanced samples (alpha) to baseline samples (1-alpha)")
     parser.add_argument("--comet_diff", type=float, default=2.0, help="Threshold for COMET improvement over baseline")
-    parser.add_argument("--rl_train_size", type=int, default=5000, help="Number of RL training samples")
-    parser.add_argument("--rl_val_size", type=int, default=200, help="Number of RL validation samples")
+    parser.add_argument("--rl_train_size", type=int, default=10000, help="Number of RL training samples")
+    parser.add_argument("--rl_val_size", type=int, default=300, help="Number of RL validation samples")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
@@ -438,53 +438,68 @@ def main():
         logger.warning("No valid samples found for RL data generation.")
         return
 
-    # 2. 计算需要的总样本数和分组目标
-    total_rl_size = args.rl_train_size + args.rl_val_size
-    target_count_a = int(total_rl_size * args.alpha)
-    target_count_b = int(total_rl_size * (1.0 - args.alpha))
+    # 2. 分别计算 train 和 val 的分组目标（都按 alpha 比例）
+    train_target_a = int(args.rl_train_size * args.alpha)
+    train_target_b = int(args.rl_train_size * (1.0 - args.alpha))
+    val_target_a = int(args.rl_val_size * args.alpha)
+    val_target_b = int(args.rl_val_size * (1.0 - args.alpha))
     
-    # 3. 采样
-    sampled_a = group_a_candidates[:target_count_a]
-    if len(sampled_a) < target_count_a:
-        logger.warning(f"Not enough Group A candidates! Requested {target_count_a}, found {len(sampled_a)}.")
+    total_target_a = train_target_a + val_target_a
+    total_target_b = train_target_b + val_target_b
     
-    sampled_b = random.sample(group_b_candidates, target_count_b) if len_b >= target_count_b else group_b_candidates
+    logger.info(f"Target -> Train: {train_target_a} (A) + {train_target_b} (B) = {args.rl_train_size}")
+    logger.info(f"Target -> Val: {val_target_a} (A) + {val_target_b} (B) = {args.rl_val_size}")
     
-    logger.info(f"Final Selection -> Group A: {len(sampled_a)} | Group B: {len(sampled_b)}")
+    # 3. 从候选池中采样
+    # Group A: 按 comet_diff 排序后取 top
+    sampled_a_all = group_a_candidates[:total_target_a]
+    if len(sampled_a_all) < total_target_a:
+        logger.warning(f"Not enough Group A candidates! Requested {total_target_a}, found {len(sampled_a_all)}.")
     
-    # 4. 生成 RL 数据
-    rl_data_list = []
+    # Group B: 随机采样
+    sampled_b_all = random.sample(group_b_candidates, total_target_b) if len_b >= total_target_b else group_b_candidates
+    if len(sampled_b_all) < total_target_b:
+        logger.warning(f"Not enough Group B candidates! Requested {total_target_b}, found {len(sampled_b_all)}.")
     
-    # 处理 Group A
-    for candidate in sampled_a:
-        item = candidate['item']
-        cue_key = candidate['cue_key']
-        tied_cues = candidate['tied_cues']
-        
-        rl_item = generate_rl_data(
-            item, 
-            cue_key=cue_key, 
-            rl_type="visual",
-            tied_cues=tied_cues
-        )
-        rl_data_list.append(rl_item)
+    # 4. 将采样结果分割为 train 和 val（保持各自的 alpha 比例）
+    # 打乱 Group A 和 Group B 内部顺序后分割
+    random.shuffle(sampled_a_all)
+    random.shuffle(sampled_b_all)
     
-    # 处理 Group B
-    for item in sampled_b:
-        rl_item = generate_rl_data(item, rl_type="baseline")
-        rl_data_list.append(rl_item)
+    train_sampled_a = sampled_a_all[:train_target_a]
+    val_sampled_a = sampled_a_all[train_target_a:train_target_a + val_target_a]
     
-    # 5. 打乱和分割
-    random.shuffle(rl_data_list)
+    train_sampled_b = sampled_b_all[:train_target_b]
+    val_sampled_b = sampled_b_all[train_target_b:train_target_b + val_target_b]
     
-    actual_total = len(rl_data_list)
-    if actual_total < total_rl_size:
-        actual_train_size = int(actual_total * (args.rl_train_size / total_rl_size))
-    else:
-        actual_train_size = args.rl_train_size
-
-    rl_train_data = rl_data_list[:actual_train_size]
-    rl_val_data = rl_data_list[actual_train_size:]
+    logger.info(f"Final Selection -> Train: {len(train_sampled_a)} (A) + {len(train_sampled_b)} (B)")
+    logger.info(f"Final Selection -> Val: {len(val_sampled_a)} (A) + {len(val_sampled_b)} (B)")
+    
+    # 5. 生成 RL 数据
+    def build_rl_data_list(sampled_a, sampled_b):
+        """根据采样结果构建 RL 数据列表"""
+        rl_list = []
+        # 处理 Group A
+        for candidate in sampled_a:
+            item = candidate['item']
+            cue_key = candidate['cue_key']
+            tied_cues = candidate['tied_cues']
+            rl_item = generate_rl_data(
+                item, 
+                cue_key=cue_key, 
+                rl_type="visual",
+                tied_cues=tied_cues
+            )
+            rl_list.append(rl_item)
+        # 处理 Group B
+        for item in sampled_b:
+            rl_item = generate_rl_data(item, rl_type="baseline")
+            rl_list.append(rl_item)
+        random.shuffle(rl_list)
+        return rl_list
+    
+    rl_train_data = build_rl_data_list(train_sampled_a, train_sampled_b)
+    rl_val_data = build_rl_data_list(val_sampled_a, val_sampled_b)
     
     # 6. 保存
     os.makedirs(args.output_rl_dir, exist_ok=True)
