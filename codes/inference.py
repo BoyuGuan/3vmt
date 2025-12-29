@@ -484,6 +484,9 @@ if __name__ == "__main__":
         if "Qwen2" in args.model_name or "Qwen3" in args.model_name or "Llama-3" in args.model_name:
             tokenizer = AutoTokenizer.from_pretrained(args.model_path, padding_side="left")
             model = AutoModelForCausalLM.from_pretrained(args.model_path, dtype="auto", device_map="auto")
+        elif "DeepSeek-R1-Distill" in args.model_name:
+            tokenizer = AutoTokenizer.from_pretrained(args.model_path, padding_side="left")
+            model = AutoModelForCausalLM.from_pretrained(args.model_path, torch_dtype=torch.bfloat16, device_map="auto")
         elif args.model_name == "internlm3-8b-instruct":
             tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True, padding_side='left')
             model = AutoModelForCausalLM.from_pretrained(args.model_path, trust_remote_code=True, dtype=torch.bfloat16).cuda()

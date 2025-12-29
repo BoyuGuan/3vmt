@@ -25,7 +25,7 @@ Rules:
             "Qwen2.5-VL-3B-Instruct":"qwen2.5-vl", "internlm3-8b-instruct":"internlm3", "Qwen2.5-3B-Instruct": "qwen2", "Qwen3-4B": "qwen2", "Qwen3-8B": "qwen2", "Qwen3-30B-A3B":"qwen2",\
         "InternVideo2_5_Chat_8B":"InternVideo2_5","Llama-3.2-11B-Vision-Instruct":"llama3.2-vision","Llama-3.1-8B-Instruct":"llama3.1", "Qwen3-32B": "qwen2", "InternVL3-14B":"internvl3", \
             "Qwen3-VL-8B-Instruct":"qwen3-vl", "Qwen3-VL-4B-Instruct":"qwen3-vl", "Qwen3-VL-8B-Thinking":"qwen3-vl", "Qwen3-VL-4B-Thinking":"qwen3-vl", "InternVL3_5-8B": "internvl3", "InternVL3_5-4B": "internvl3", \
-            "Qwen3-4B-Thinking-2507": "qwen2", "Qwen3-4B-Instruct-2507": "qwen2"}
+            "Qwen3-4B-Thinking-2507": "qwen2", "Qwen3-4B-Instruct-2507": "qwen2", "DeepSeek-R1-Distill-Qwen-7B": "DeepSeek-R1-Distill", "DeepSeek-R1-Distill-Llama-8B": "DeepSeek-R1-Distill"}
     systemPrompts = dict()
     systemPrompts["qwen2"] = {"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."}
     systemPrompts["llama3"] = None    
@@ -41,6 +41,7 @@ Rules:
     systemPrompts["llama3.1"] = None
     systemPrompts["internvl3"] = None
     systemPrompts["qwen3-vl"] = None
+    systemPrompts["DeepSeek-R1-Distill"] = None
 
     return systemPrompts[modelName2Type[modelName]]
 
