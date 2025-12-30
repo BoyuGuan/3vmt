@@ -160,9 +160,9 @@ def getSrcPredsRefs(DirName):
     
     if "</think>" in preds[0] and "</think>" in preds[1]:
         preds = [cleanLLMLongTranslate(pred.split("</think>")[-1].strip()) for pred in preds]
-    elif "So the translation is:" in preds[0] or "So the translation is:" in preds[1]:
-        # 参考 vmt_translation.py 中的提取方式
-        translation_pattern = re.compile(r"So the translation is:\s*(.*)", re.DOTALL | re.IGNORECASE)
+    elif "translation is:" in preds[0].lower() or "translation is:" in preds[1].lower():
+        # 参考 vmt_translation.py 中的提取方式，支持 "The translation is:" 和 "So the translation is:"
+        translation_pattern = re.compile(r"(?:So\s+)?(?:The\s+)?translation is:\s*(.*)", re.DOTALL | re.IGNORECASE)
         extracted_preds = []
         for pred in preds:
             match = translation_pattern.search(pred)
