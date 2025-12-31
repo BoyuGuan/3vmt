@@ -38,4 +38,23 @@ if __name__ == "__main__":
 
             # 检查是否所有关键字都存在于文件内容中
             if all(keyword in content for keyword in args.keywords):
-                print(subfolder)
+                print(f"\n{'='*80}")
+                print(f"文件夹: {subfolder}")
+                print(f"{'='*80}")
+                
+                # 打印 eval.log 的内容
+                print(f"\n--- eval.log 内容 ---")
+                print(content)
+                
+                # 打印 translationMetricScores.log 的内容
+                metric_log_file = os.path.join(subfolder_path, "translationMetricScores.log")
+                if os.path.exists(metric_log_file):
+                    try:
+                        with open(metric_log_file, 'r', encoding='utf-8') as f:
+                            metric_content = f.read()
+                        print(f"\n--- translationMetricScores.log 内容 ---")
+                        print(metric_content)
+                    except Exception as e:
+                        print(f"读取文件 {metric_log_file} 时发生错误：{e}")
+                else:
+                    print(f"\n--- translationMetricScores.log 不存在 ---")
